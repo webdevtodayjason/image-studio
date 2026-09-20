@@ -9,6 +9,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import device
+import media
 import studio
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -121,6 +122,53 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({
                     "error": ("a model is loading; wait until it is ready "
                               "before generating")}, 409)
+            job = studio.LANE.submit(spec)
+            return self._json({"ok": True, "job": job}, 202)
+        if u.path == "/api/upload":
+            name = (body.get("name") or "upload.png").strip() or "upload.png"
+            blob = studio.decode_data_url(body.get("image") or "")
+            if not blob:
+                return self._json({"error": "image is required"}, 400)
+            try:
+                item = studio.ingest_upload(blob, name)
+            except media.MediaError as exc:
+                return self._json({"error": str(exc)}, 400)
+            except Exception as exc:  # noqa: BLE001
+                return self._json({"error": str(exc)}, 400)
+            return self._json({"ok": True, "item": item}, 201)
+        if u.path in ("/api/workflow/plan", "/api/workflow"):
+            try:
+                tok = device.key()
+            except SystemExit as e:
+                return self._json({"error": str(e)}, 503)
+            spec, err = studio.new_workflow_spec(tok, body)
+            if err:
+                return self._json({"error": err}, 400)
+            if u.path == "/api/workflow/plan":
+                return self._json({"ok": True, "plan": spec["plan"],
+                                   "steps": spec["steps"],
+                                   "honesty": spec["honesty"],
+                                   "seed": spec["seed"]})
+            if spec["plan"].get("swap") and not body.get("confirm"):
+                return self._json({
+                    "error": (
+                        "this run has to unload between steps so both models "
+                        "fit. That adds about %d extra seconds. Resident: %s. "
+                        "Confirm if you want it to swap."
+                        % (spec["plan"].get("extra_s") or 0,
+                           "; ".join("%s (%s units)" % (
+                               r["id"], r.get("npu_usage")
+                               if r.get("npu_usage") is not None else "?")
+                                     for r in spec["plan"].get("resident") or [])
+                           or "nothing")),
+                    "needs_confirm": True,
+                    "plan": spec["plan"],
+                    "honesty": spec["honesty"],
+                }, 409)
+            if studio.LOADER.busy():
+                return self._json({
+                    "error": ("a model is loading; wait until it is ready "
+                              "before running a workflow")}, 409)
             job = studio.LANE.submit(spec)
             return self._json({"ok": True, "job": job}, 202)
         if u.path == "/api/load":

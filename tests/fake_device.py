@@ -38,6 +38,15 @@ CATALOG = [
     {"id": "deepreinforce-ai/Ornith-1.0-35B", "display_name": "Ornith",
      "type": "Image-Text-to-Text", "params": "35B", "npu_usage": 50,
      "total_size": 18_000_000_000, "status": "available"},
+    {"id": "Qwen/Qwen3.8-27B", "display_name": "Qwen3.8 27B",
+     "type": "Image-Text-to-Text", "params": "27B", "npu_usage": 55,
+     "total_size": 16_000_000_000, "status": "available"},
+    {"id": "example/Vision-70", "display_name": "Vision 70",
+     "type": "Image-Text-to-Text", "params": "70B", "npu_usage": 70,
+     "total_size": 28_000_000_000, "status": "available"},
+    {"id": "example/Chat-8", "display_name": "Chat 8",
+     "type": "Text Generation", "params": "8B", "npu_usage": 20,
+     "total_size": 5_000_000_000, "status": "available"},
 ]
 
 
@@ -49,6 +58,7 @@ class State:
         self.peak = 0
         self.lock = threading.Lock()
         self.calls = []
+        self.chat_calls = []
         self.hold_generate = None
         self.generate_started = threading.Event()
         self.npu_total = 100
@@ -160,6 +170,37 @@ class FakeHandler(BaseHTTPRequestHandler):
             body = json.loads(raw.decode() or "{}")
         except ValueError:
             body = {}
+        if path == "/v1/chat/completions":
+            if not self._auth():
+                return
+            model = body.get("model")
+            if model not in self.state.loaded or model in self.state.pending:
+                return self._send(503, {
+                    "error": {"message": "No suitable model is currently running.",
+                              "type": "service_unavailable"}})
+            with self.state.lock:
+                self.state.current += 1
+                self.state.peak = max(self.state.peak, self.state.current)
+                self.state.chat_calls.append(body)
+            try:
+                time.sleep(0.08)
+                text = ("a red apple on a wooden table, studio lighting, "
+                        "detailed still life")
+                if not self._sent_image(body):
+                    text = ("a red apple on a wooden table, plain white "
+                            "background, studio lighting")
+                return self._send(200, {
+                    "id": "chatcmpl-fake", "object": "chat.completion",
+                    "model": model,
+                    "choices": [{"index": 0, "finish_reason": "stop",
+                                 "message": {"role": "assistant",
+                                             "content": text}}],
+                    "usage": {"prompt_tokens": 16, "completion_tokens": 18,
+                              "total_tokens": 34},
+                })
+            finally:
+                with self.state.lock:
+                    self.state.current -= 1
         if path == "/v1/image/generate":
             if not self._auth():
                 return
@@ -192,6 +233,17 @@ class FakeHandler(BaseHTTPRequestHandler):
                     return
                 return handler(model_id)
         return self._send(404, {"error": {"message": "not found"}})
+
+    @staticmethod
+    def _sent_image(body):
+        for message in body.get("messages") or []:
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+        return False
 
     @staticmethod
     def _model_from(path, prefix, suffix=""):

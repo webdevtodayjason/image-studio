@@ -186,10 +186,15 @@ class TestHttp(StudioCase):
         self.assertIn(b"Unload", raw)
         self.assertIn(b"loadbtn", raw)
         self.assertIn(b"#4FD0C8", raw)
+        self.assertIn(b"Re-rendered, not edited.", raw)
+        self.assertIn(b"The box cannot modify pixels in an uploaded image", raw)
+        self.assertIn(b"id=\"wf\"", raw)
+        self.assertIn(b"id=\"drop\"", raw)
         for banned in (b"#EF7D22", b"#d1564a", b"#6b2f28", b"#F5F3EE"):
             self.assertNotIn(banned, raw)
         self.assertNotIn(b"does not load models", raw)
         self.assertNotIn(b"memory_total_mb", raw)
+        self.assertNotIn(b" MB", raw)
 
     def test_models_come_from_the_device_not_a_table(self):
         status, body = self.call("/api/models")
@@ -197,6 +202,13 @@ class TestHttp(StudioCase):
         ids = [m["id"] for m in body["models"]]
         self.assertIn("Tongyi-MAI/Z-Image-Turbo", ids)
         self.assertNotIn("deepreinforce-ai/Ornith-1.0-35B", ids)
+        self.assertNotIn("Qwen/Qwen3.8-27B", ids)
+        read_ids = [m["id"] for m in body["read"]]
+        self.assertIn("Qwen/Qwen3.8-27B", read_ids)
+        self.assertIn("describe", [p["id"] for p in body["presets"]])
+        self.assertIn("rerender", [p["id"] for p in body["presets"]])
+        self.assertIn("refine", [p["id"] for p in body["presets"]])
+        self.assertIn("restyle", [p["id"] for p in body["presets"]])
         turbo = next(m for m in body["models"] if "Z-Image" in m["id"])
         self.assertTrue(turbo["loaded"])
         self.assertTrue(turbo["fits"])
@@ -367,11 +379,23 @@ class TestLoadHttp(StudioCase):
         self.assertIn("Tongyi-MAI/Z-Image-Turbo (32 units)", body["error"])
         self.assertNotIn(huge, self.fake.state.loaded)
 
-    def test_a_chat_model_is_not_an_image_model(self):
+    def test_a_vision_model_can_be_loaded_from_the_rail(self):
         status, body = self.call("/api/load", "POST", {
             "model": "deepreinforce-ai/Ornith-1.0-35B"})
-        self.assertEqual(status, 400)
-        self.assertIn("not an installed Text-to-Image model", body["error"])
+        self.assertEqual(status, 202, body)
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            if "deepreinforce-ai/Ornith-1.0-35B" in self.fake.state.loaded:
+                break
+            time.sleep(0.05)
+        self.assertIn("deepreinforce-ai/Ornith-1.0-35B", self.fake.state.loaded)
+
+    def test_paint_refuses_a_vision_model(self):
+        result = studio.paint(self.tok(), "deepreinforce-ai/Ornith-1.0-35B",
+                              "anything", "", 1, 8)
+        self.assertFalse(result["ok"])
+        self.assertIn("not a Text-to-Image model", result["error"])
+        self.assertEqual(self.fake.state.calls, [])
 
     def test_load_is_refused_while_a_generate_is_running(self):
         gate = threading.Event()
@@ -402,6 +426,217 @@ class TestLoadHttp(StudioCase):
         blob = json.dumps(body)
         self.assertNotIn("memory_total_mb", blob)
         self.assertNotIn("memory_mb", blob)
+
+
+class TestUpload(StudioCase):
+    def test_png_upload_is_marked_and_kept(self):
+        item = studio.ingest_upload(PNG, "photo.png")
+        self.assertEqual(item["source"], "upload")
+        self.assertEqual(item["name"], "photo.png")
+        self.assertEqual(item["width"], 1)
+        self.assertEqual(item["height"], 1)
+        found = studio.read_item(item["id"])
+        self.assertTrue(found["png"].read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_longest_edge_is_1536(self):
+        import media
+        blob = media.split_color_png(1800, 200)
+        png, w, h = media.to_fitted_png(blob)
+        self.assertEqual(max(w, h), 1536)
+        self.assertEqual(w, 1536)
+        self.assertTrue(h < 200)
+        again = studio.ingest_upload(png, "wide.png")
+        self.assertEqual(again["width"], 1536)
+
+    def test_gif_is_refused(self):
+        import media
+        with self.assertRaises(media.MediaError) as ctx:
+            media.to_fitted_png(b"GIF89a" + b"\x00" * 20)
+        self.assertEqual(str(ctx.exception), media.ONLY_PNG)
+
+    def test_jpeg_and_webp_are_refused(self):
+        import media
+        jpeg = b"\xff\xd8\xff" + b"\x00" * 20
+        webp = b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 8
+        for blob in (jpeg, webp):
+            with self.assertRaises(media.MediaError) as ctx:
+                media.to_fitted_png(blob)
+            self.assertEqual(str(ctx.exception), media.ONLY_PNG)
+            self.assertIn("png only", str(ctx.exception))
+            self.assertIn("jpeg and webp", str(ctx.exception))
+
+
+class TestWorkflow(StudioCase):
+    loaded = ["Tongyi-MAI/Z-Image-Turbo", "Qwen/Qwen3.8-27B"]
+
+    def setUp(self):
+        super().setUp()
+        self.app = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        self.app.daemon_threads = True
+        th = threading.Thread(target=self.app.serve_forever,
+                              kwargs={"poll_interval": 0.05}, daemon=True)
+        th.start()
+        self.addCleanup(th.join, 5)
+        self.addCleanup(self.app.server_close)
+        self.addCleanup(self.app.shutdown)
+        self.base = "http://127.0.0.1:%d" % self.app.server_address[1]
+
+    def call(self, path, method="GET", body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw, status = resp.read(), resp.status
+                ctype = resp.headers.get("Content-Type")
+        except urllib.error.HTTPError as exc:
+            raw, status, ctype = exc.read(), exc.code, exc.headers.get("Content-Type")
+        if ctype and "json" in ctype:
+            return status, json.loads(raw.decode())
+        return status, raw
+
+    def wait_job(self, jid, timeout=6):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            _, st = self.call("/api/status?job=" + jid)
+            job = st.get("job") or {}
+            if job.get("status") in ("done", "failed"):
+                return job
+            time.sleep(0.05)
+        self.fail("job %s did not finish" % jid)
+
+    def test_upload_then_http_round_trip(self):
+        import base64
+        import media
+        blob = media.split_color_png(64, 64)
+        status, body = self.call("/api/upload", "POST", {
+            "name": "split.png",
+            "image": "data:image/png;base64," + base64.b64encode(blob).decode(),
+        })
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["item"]["source"], "upload")
+        iid = body["item"]["id"]
+        status, png = self.call("/api/gallery/%s.png" % iid)
+        self.assertEqual(status, 200)
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_restyle_records_parent_and_honesty(self):
+        up = studio.ingest_upload(PNG, "src.png")
+        status, body = self.call("/api/workflow", "POST", {
+            "preset": "restyle",
+            "upload_id": up["id"],
+            "read_model": "Qwen/Qwen3.8-27B",
+            "render_model": "Tongyi-MAI/Z-Image-Turbo",
+            "seed": 11, "steps": 8,
+        })
+        self.assertEqual(status, 202, body)
+        job = self.wait_job(body["job"]["id"])
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual(job["item"]["parent"], up["id"])
+        self.assertIn("Re-rendered, not edited.", job["item"]["honesty"])
+        self.assertTrue(self.fake.state.chat_calls)
+        content = self.fake.state.chat_calls[0]["messages"][0]["content"]
+        self.assertTrue(any(isinstance(p, dict) and p.get("type") == "image_url"
+                            for p in content))
+        self.assertTrue(self.fake.state.calls)
+        gen = self.fake.state.calls[0]
+        self.assertEqual(set(gen), set(studio.GENERATE_FIELDS))
+        for banned in ("image", "mask", "init_image", "input_image",
+                       "image_url", "strength"):
+            self.assertNotIn(banned, gen)
+        self.assertEqual(self.fake.state.peak, 1)
+
+    def test_describe_returns_text(self):
+        up = studio.ingest_upload(PNG, "src.png")
+        status, body = self.call("/api/workflow", "POST", {
+            "preset": "describe",
+            "upload_id": up["id"],
+            "read_model": "Qwen/Qwen3.8-27B",
+        })
+        self.assertEqual(status, 202, body)
+        job = self.wait_job(body["job"]["id"])
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertTrue(job.get("text"))
+        self.assertIsNone(job.get("item"))
+
+    def test_generate_body_is_only_measured_fields(self):
+        status, body = self.call("/api/generate", "POST", {
+            "model": "Tongyi-MAI/Z-Image-Turbo",
+            "prompt": "a bowl of oranges",
+            "seed": 3, "steps": 8,
+            "image": "should-be-ignored-by-us-not-sent",
+            "init_image": "nope",
+        })
+        self.assertEqual(status, 202, body)
+        job = self.wait_job(body["job"]["id"])
+        self.assertEqual(job["status"], "done", job.get("error"))
+        gen = self.fake.state.calls[-1]
+        self.assertEqual(set(gen), set(studio.GENERATE_FIELDS))
+
+
+class TestSwap(StudioCase):
+    loaded = ["Tongyi-MAI/Z-Image-Turbo"]
+
+    def setUp(self):
+        super().setUp()
+        self.app = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        self.app.daemon_threads = True
+        th = threading.Thread(target=self.app.serve_forever,
+                              kwargs={"poll_interval": 0.05}, daemon=True)
+        th.start()
+        self.addCleanup(th.join, 5)
+        self.addCleanup(self.app.server_close)
+        self.addCleanup(self.app.shutdown)
+        self.base = "http://127.0.0.1:%d" % self.app.server_address[1]
+
+    def call(self, path, method="GET", body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw, status = resp.read(), resp.status
+                ctype = resp.headers.get("Content-Type")
+        except urllib.error.HTTPError as exc:
+            raw, status, ctype = exc.read(), exc.code, exc.headers.get("Content-Type")
+        if ctype and "json" in ctype:
+            return status, json.loads(raw.decode())
+        return status, raw
+
+    def test_swap_is_said_up_front_then_runs(self):
+        up = studio.ingest_upload(PNG, "src.png")
+        body = {
+            "preset": "restyle",
+            "upload_id": up["id"],
+            "read_model": "example/Vision-70",
+            "render_model": "Tongyi-MAI/Z-Image-Turbo",
+            "seed": 4, "steps": 8,
+        }
+        status, plan = self.call("/api/workflow/plan", "POST", body)
+        self.assertEqual(status, 200, plan)
+        self.assertTrue(plan["plan"]["swap"])
+        self.assertEqual(plan["plan"]["extra_s"], 240)
+        status, resp = self.call("/api/workflow", "POST", body)
+        self.assertEqual(status, 409, resp)
+        self.assertTrue(resp.get("needs_confirm"))
+        self.assertIn("extra seconds", resp["error"])
+        body["confirm"] = True
+        status, resp = self.call("/api/workflow", "POST", body)
+        self.assertEqual(status, 202, resp)
+        jid = resp["job"]["id"]
+        deadline = time.time() + 8
+        job = None
+        while time.time() < deadline:
+            _, st = self.call("/api/status?job=" + jid)
+            job = st.get("job") or {}
+            if job.get("status") in ("done", "failed"):
+                break
+            time.sleep(0.05)
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual(job["item"]["parent"], up["id"])
+        self.assertEqual(self.fake.state.peak, 1)
 
 
 if __name__ == "__main__":

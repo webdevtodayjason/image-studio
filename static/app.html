@@ -35,7 +35,7 @@ h1 em{font-style:normal;color:var(--accent)}
 .sub{color:var(--steel);font-size:12.5px;margin-top:4px;max-width:62ch}
 header .right{margin-left:auto;font-size:11.5px;color:var(--dim);text-align:right;white-space:pre-line}
 header .right b{color:var(--steel);font-weight:400}
-.layout{display:grid;gap:18px;grid-template-columns:minmax(280px,380px) minmax(0,1fr)}
+.layout{display:grid;gap:18px;grid-template-columns:minmax(280px,400px) minmax(0,1fr)}
 @media (max-width:860px){.layout{grid-template-columns:1fr}}
 .rail{display:flex;flex-direction:column;gap:18px}
 .card{background:var(--s1);border:1px solid var(--line);border-radius:7px}
@@ -74,9 +74,11 @@ button.danger{border-color:#6A3048;color:var(--bad)}
 .note{color:var(--dim);font-size:11.5px;margin-top:10px}
 .warn{background:#122024;border:1px solid #2A5A5E;border-radius:7px;padding:11px 14px;
   margin-bottom:12px;font-size:12.5px;color:#C5E4E0}
-.warn[hidden],.errbox[hidden],.empty[hidden]{display:none}
+.warn[hidden],.errbox[hidden],.empty[hidden],.honesty[hidden],.field[hidden],.upthumb[hidden]{display:none}
 .errbox{background:#1A1014;border:1px solid #6A3048;border-radius:7px;padding:11px 14px;
   margin-bottom:12px;font-size:12.5px;color:var(--bad)}
+.honesty{background:#122024;border:1px solid var(--accent);border-radius:7px;padding:12px 14px;
+  margin-top:12px;font-size:13px;color:var(--ink);line-height:1.45}
 .pill{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   padding:2px 7px;border-radius:3px;border:1px solid var(--line2);color:var(--steel)}
 .pill.live{border-color:#4a7c3f;color:var(--good)}
@@ -95,7 +97,8 @@ button.danger{border-color:#6A3048;color:var(--bad)}
 .preview{background:var(--s3);border-radius:6px;min-height:280px;display:grid;place-items:center;
   overflow:hidden}
 .preview img{width:100%;height:auto;display:block}
-.preview .ph{color:var(--dim);font-size:12px;padding:24px;text-align:center;max-width:36ch}
+.preview .ph{color:var(--dim);font-size:12px;padding:24px;text-align:center;max-width:42ch;
+  white-space:pre-wrap}
 .meta{margin-top:10px;font-size:12px;color:var(--steel);display:flex;flex-wrap:wrap;gap:10px}
 .meta b{color:var(--ink);font-weight:500}
 .ghead{display:flex;align-items:baseline;gap:12px;margin:28px 0 12px}
@@ -117,6 +120,16 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
   text-transform:uppercase;color:var(--steel)}
 .conn input.txt{width:min(280px,100%)}
 .conn .save{margin-bottom:1px}
+.drop{border:1px dashed var(--line2);border-radius:6px;padding:18px 14px;text-align:center;
+  color:var(--steel);font-size:12.5px;background:var(--ground);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.drop input{display:none}
+.upthumb{margin-top:10px;display:flex;gap:10px;align-items:center}
+.upthumb img{width:56px;height:56px;object-fit:cover;border-radius:5px;background:var(--s3)}
+.upthumb .n{font-size:12px;color:var(--ink)}
+.step{border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--ground)}
+.step .top{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.step select.txt{flex:1}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){
   button.go,button.ghost,.meter i{transition:none}
@@ -127,7 +140,7 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
   <div class="mark">IS</div>
   <div>
     <h1>Image <em>Studio</em></h1>
-    <p class="sub">512x512 plates from the Text-to-Image models on this box. Load and unload from the rail. One generate at a time. The gallery lives on this machine, not in the install.</p>
+    <p class="sub">Read, think, render. The box cannot edit pixels in an upload, so a chain that starts from a photo paints a new plate. One request per step. The gallery lives on this machine.</p>
   </div>
   <div class="right" id="who">looking for a box</div>
 </header>
@@ -144,6 +157,78 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
         <div id="resident"></div>
       </div>
     </div>
+
+    <div class="card">
+      <div class="hd">Upload <span class="r">png only</span></div>
+      <div class="bd">
+        <div class="drop" id="drop">Drop a png, or pick a file. jpeg and webp are not decoded here.
+          <input type="file" id="file" accept="image/png,.png">
+        </div>
+        <div class="upthumb" id="upthumb" hidden>
+          <img id="upimg" alt="upload">
+          <div>
+            <div class="n" id="upname"></div>
+            <div class="note" id="upmeta" style="margin-top:2px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <form class="card" id="wf" autocomplete="off">
+      <div class="hd">Workflow <span class="r" id="wfkind">presets</span></div>
+      <div class="bd">
+        <label class="lab">Preset
+          <select class="txt" id="preset"></select>
+        </label>
+        <div class="field" id="f-read">
+          <div class="modelrow">
+            <label class="lab">Read model
+              <select class="txt" id="read_model"></select>
+            </label>
+            <button class="ghost" id="loadread" type="button">Load</button>
+          </div>
+        </div>
+        <div class="field" id="f-think">
+          <div class="modelrow">
+            <label class="lab">Think model
+              <select class="txt" id="think_model"></select>
+            </label>
+            <button class="ghost" id="loadthink" type="button">Load</button>
+          </div>
+        </div>
+        <div class="field" id="f-render">
+          <div class="modelrow">
+            <label class="lab">Render model
+              <select class="txt" id="render_model"></select>
+            </label>
+            <button class="ghost" id="loadrender" type="button">Load</button>
+          </div>
+        </div>
+        <div class="field" id="f-prompt">
+          <label class="lab">Prompt
+            <textarea class="txt" id="wfprompt" placeholder="what the plate should be"></textarea>
+          </label>
+        </div>
+        <div class="field" id="f-change">
+          <label class="lab">Change
+            <textarea class="txt" id="change" placeholder="remove the background, plain white"></textarea>
+          </label>
+        </div>
+        <div class="field" id="f-n">
+          <label class="lab">Refine loops
+            <input class="txt" id="loops" type="number" min="1" max="8" value="1">
+          </label>
+        </div>
+        <div class="field" id="f-custom">
+          <div id="customsteps"></div>
+          <button class="ghost" type="button" id="addstep">Add step</button>
+        </div>
+        <div class="warn" id="planbox" hidden></div>
+        <button class="go" id="wfrun" type="submit">Run workflow</button>
+        <p class="note">Each step is one request. A four-step run is four requests, never one. The seed that actually ran is saved with the plate.</p>
+      </div>
+    </form>
+
     <form class="card" id="form" autocomplete="off">
       <div class="hd">Generate <span class="r">512 x 512</span></div>
       <div class="bd">
@@ -178,6 +263,7 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
       <div class="hd">Now <span class="r" id="qdepth"></span></div>
       <div class="bd">
         <div class="preview" id="preview"><div class="ph">Nothing generating. Queue is empty.</div></div>
+        <div class="honesty" id="honesty" hidden></div>
         <div class="meta" id="nowmeta"></div>
         <div id="qlist"></div>
       </div>
@@ -190,7 +276,7 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
   <span class="note" id="gcount"></span>
 </div>
 <div class="grid" id="gallery"></div>
-<p class="empty" id="gempty">Nothing on disk yet. Generate one.</p>
+<p class="empty" id="gempty">Nothing on disk yet. Upload or generate one.</p>
 
 <form class="conn" id="conn">
   <label>Device address
@@ -206,10 +292,19 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
 <script>
 const $ = id => document.getElementById(id);
 const errBox = $("err"), warnBox = $("warn");
-let watch = null, lastJob = null, models = [], npuLive = null, loading = null, npuTimer = null;
+const HONESTY = "Re-rendered, not edited. The box cannot modify pixels in an uploaded image, so this is a new painting based on what the model saw.";
+let watch = null, lastJob = null, models = [], readModels = [], thinkModels = [];
+let npuLive = null, loading = null, npuTimer = null, presets = [];
+let upload = null, wfConfirm = false, customSteps = [];
 
 function showErr(t){ if(!t){errBox.hidden=true;errBox.textContent="";return;} errBox.hidden=false; errBox.textContent=t; }
 function showWarn(t){ if(!t){warnBox.hidden=true;warnBox.textContent="";return;} warnBox.hidden=false; warnBox.textContent=t; }
+function showHonesty(t){
+  const el = $("honesty");
+  if(!t){ el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.textContent = t;
+}
 
 async function jget(url){
   const r = await fetch(url);
@@ -223,7 +318,13 @@ async function jsend(url, method, body){
     body: body?JSON.stringify(body):undefined});
   const t = await r.text();
   let d; try{ d = JSON.parse(t); }catch(e){ d = {error:t||r.statusText}; }
-  if(!r.ok) throw new Error(d.error || r.statusText);
+  d._status = r.status;
+  if(!r.ok) {
+    const err = new Error(d.error || r.statusText);
+    err.body = d;
+    err.status = r.status;
+    throw err;
+  }
   return d;
 }
 
@@ -263,21 +364,16 @@ function paintNpu(npu){
   }
 }
 
-function fillModels(list){
-  models = list || [];
-  const sel = $("model");
-  const keep = sel.value;
+function fillSelect(sel, list, keep, emptyLabel){
   sel.textContent = "";
-  if(!models.length){
+  if(!list.length){
     const o = document.createElement("option");
-    o.textContent = "no Text-to-Image models installed";
+    o.textContent = emptyLabel;
     o.value = "";
     sel.appendChild(o);
-    $("go").disabled = true;
-    $("loadbtn").disabled = true;
     return;
   }
-  for(const m of models){
+  for(const m of list){
     const o = document.createElement("option");
     o.value = m.id;
     const short = m.display_name || m.id.split("/").pop();
@@ -286,21 +382,32 @@ function fillModels(list){
     else if(m.fits) o.textContent = short + "  · fits · " + cost;
     else {
       o.textContent = short + "  · will not fit · " + cost;
-      o.disabled = true;
     }
     sel.appendChild(o);
   }
-  const loaded = models.find(m => m.loaded);
+  const loaded = list.find(m => m.loaded);
   const keepOpt = [...sel.options].find(o => o.value === keep);
-  if(keepOpt && !keepOpt.disabled){
-    sel.value = keep;
-  } else if(loaded){
-    sel.value = loaded.id;
-  } else {
-    const first = [...sel.options].find(o => !o.disabled && o.value);
-    sel.value = first ? first.value : models[0].id;
+  if(keepOpt) sel.value = keep;
+  else if(loaded) sel.value = loaded.id;
+  else {
+    const first = [...sel.options].find(o => o.value);
+    if(first) sel.value = first.value;
   }
+}
+
+function fillModels(list){
+  models = list || [];
+  const sel = $("model");
+  const keep = sel.value;
+  fillSelect(sel, models, keep, "no Text-to-Image models installed");
+  fillSelect($("render_model"), models, $("render_model").value, "no Text-to-Image models installed");
+  $("go").disabled = !models.some(m => m.loaded);
   onModel();
+}
+
+function fillTaskModels(){
+  fillSelect($("read_model"), readModels, $("read_model").value, "no Image-Text-to-Text models installed");
+  fillSelect($("think_model"), thinkModels, $("think_model").value, "no chat models installed");
 }
 
 function onModel(){
@@ -319,6 +426,135 @@ function onModel(){
   else showWarn(m.id + " is installed but not loaded. Load it from the rail.");
 }
 
+function currentPreset(){
+  return presets.find(p => p.id === $("preset").value) || presets[0] || {};
+}
+
+function fillPresets(){
+  const sel = $("preset");
+  const keep = sel.value;
+  sel.textContent = "";
+  for(const p of presets){
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.name;
+    sel.appendChild(o);
+  }
+  if(keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  onPreset();
+}
+
+function onPreset(){
+  const p = currentPreset();
+  $("f-read").hidden = !(p.needs_upload || p.id === "refine" || p.id === "custom");
+  $("f-think").hidden = !(p.needs_change || p.id === "refine" || p.id === "custom");
+  $("f-render").hidden = !(p.honesty || p.needs_prompt || p.id === "custom" || p.id === "refine" || p.id === "restyle");
+  if(p.id === "describe"){ $("f-read").hidden = false; $("f-think").hidden = true; $("f-render").hidden = true; }
+  $("f-prompt").hidden = !p.needs_prompt;
+  $("f-change").hidden = !p.needs_change;
+  $("f-n").hidden = !p.needs_n;
+  $("f-custom").hidden = p.id !== "custom";
+  $("wfkind").textContent = p.name || "presets";
+  wfConfirm = false;
+  $("wfrun").textContent = "Run workflow";
+  if(p.id === "custom" && !customSteps.length) addCustomStep("read");
+  renderCustom();
+  refreshPlan();
+}
+
+function addCustomStep(kind){
+  customSteps.push({kind: kind || "read", model: "", instruction: ""});
+  renderCustom();
+}
+
+function renderCustom(){
+  const box = $("customsteps");
+  box.textContent = "";
+  if($("preset").value !== "custom") return;
+  customSteps.forEach((s, i) => {
+    const d = document.createElement("div"); d.className = "step";
+    const top = document.createElement("div"); top.className = "top";
+    const kind = document.createElement("select"); kind.className = "txt";
+    for(const k of ["read","think","render"]){
+      const o = document.createElement("option"); o.value = k; o.textContent = k;
+      if(s.kind === k) o.selected = true;
+      kind.appendChild(o);
+    }
+    kind.addEventListener("change", () => { s.kind = kind.value; renderCustom(); refreshPlan(); });
+    const model = document.createElement("select"); model.className = "txt";
+    const list = s.kind === "render" ? models : s.kind === "read" ? readModels : thinkModels;
+    fillSelect(model, list, s.model, "no model");
+    s.model = model.value;
+    model.addEventListener("change", () => { s.model = model.value; refreshPlan(); });
+    const del = document.createElement("button"); del.type = "button"; del.className = "ghost danger";
+    del.textContent = "Remove";
+    del.addEventListener("click", () => { customSteps.splice(i,1); renderCustom(); refreshPlan(); });
+    top.appendChild(kind); top.appendChild(model); top.appendChild(del);
+    d.appendChild(top);
+    if(s.kind !== "render"){
+      const ta = document.createElement("textarea"); ta.className = "txt";
+      ta.placeholder = s.kind === "read" ? "instruction for the picture" : "instruction for the text";
+      ta.value = s.instruction || "";
+      ta.addEventListener("input", () => { s.instruction = ta.value; });
+      d.appendChild(ta);
+    }
+    box.appendChild(d);
+  });
+}
+
+function wfBody(confirm){
+  const p = currentPreset();
+  const body = {
+    preset: p.id,
+    upload_id: upload && upload.id,
+    read_model: $("read_model").value,
+    think_model: $("think_model").value,
+    render_model: $("render_model").value,
+    prompt: $("wfprompt").value,
+    change: $("change").value,
+    n: $("loops").value,
+    seed: $("seed").value,
+    steps: $("steps").value,
+    negative_prompt: $("negative").value,
+  };
+  if(confirm) body.confirm = true;
+  if(p.id === "custom"){
+    body.steps = customSteps.map(s => ({
+      kind: s.kind, model: s.model, instruction: s.instruction
+    }));
+  }
+  return body;
+}
+
+async function refreshPlan(){
+  const box = $("planbox");
+  const p = currentPreset();
+  if(!p.id){ box.hidden = true; return; }
+  try{
+    const r = await jsend("/api/workflow/plan", "POST", wfBody(false));
+    const plan = r.plan || {};
+    const bits = [];
+    if(r.honesty) bits.push(HONESTY);
+    if(plan.swap){
+      const who = (plan.unloads||[]).map(u => u.model.split("/").pop() + " (" + u.npu_usage + "u)").join(", ");
+      bits.push("This run has to unload between steps so both models fit: " + who + ". About " + (plan.extra_s||0) + " extra seconds.");
+    } else if((plan.loads||[]).length){
+      bits.push("Will load " + plan.loads.map(l => l.model.split("/").pop()).join(", ") + ". About " + (plan.extra_s||0) + " extra seconds.");
+    }
+    if(bits.length){ box.hidden = false; box.textContent = bits.join(" "); }
+    else { box.hidden = true; box.textContent = ""; }
+    $("wfrun").textContent = plan.swap ? ("Run · swap · +" + (plan.extra_s||0) + "s") : "Run workflow";
+  }catch(e){
+    if(currentPreset().needs_upload && !upload){
+      box.hidden = false;
+      box.textContent = "Upload a picture first.";
+      return;
+    }
+    box.hidden = false;
+    box.textContent = e.message;
+  }
+}
+
 function renderQueue(st){
   const depth = st.depth || 0;
   $("qdepth").textContent = depth ? (depth + (depth===1?" job":" jobs")) : "idle";
@@ -330,50 +566,76 @@ function renderQueue(st){
     prev.innerHTML = "";
     const ph = document.createElement("div");
     ph.className = "ph";
-    ph.textContent = "Generating · " + (run.elapsed_s||0) + "s · seed " + run.seed;
+    if(run.kind === "workflow"){
+      ph.textContent = "Step " + (run.step_i||"?") + " of " + (run.step_n||"?")
+        + " · " + (run.step_label || run.step_kind || "running")
+        + " · " + (run.elapsed_s||0) + "s";
+    } else {
+      ph.textContent = "Generating · " + (run.elapsed_s||0) + "s · seed " + run.seed;
+    }
     prev.appendChild(ph);
-    const b = document.createElement("b"); b.textContent = run.model;
-    const s = document.createElement("span"); s.textContent = run.prompt;
+    const b = document.createElement("b"); b.textContent = run.model || run.preset || "";
+    const s = document.createElement("span"); s.textContent = run.prompt || run.change || "";
     meta.appendChild(b); meta.appendChild(s);
-  } else if(lastJob && lastJob.status === "done" && lastJob.item){
+    showHonesty("");
+  } else if(lastJob && lastJob.status === "done"){
     prev.innerHTML = "";
-    const img = document.createElement("img");
-    img.alt = lastJob.item.prompt;
-    img.src = "/api/gallery/" + lastJob.item.id + ".png?t=" + Date.now();
-    prev.appendChild(img);
+    if(lastJob.item){
+      const img = document.createElement("img");
+      img.alt = lastJob.item.prompt || lastJob.item.id;
+      img.src = "/api/gallery/" + lastJob.item.id + ".png?t=" + Date.now();
+      prev.appendChild(img);
+    } else if(lastJob.text){
+      const ph = document.createElement("div");
+      ph.className = "ph";
+      ph.style.color = "var(--ink)";
+      ph.textContent = lastJob.text;
+      prev.appendChild(ph);
+    } else {
+      const ph = document.createElement("div"); ph.className = "ph";
+      ph.textContent = "Done.";
+      prev.appendChild(ph);
+    }
     meta.innerHTML = "";
-    const bits = [
-      ["seed", lastJob.item.seed],
-      ["steps", lastJob.item.steps],
-      ["wall", (lastJob.item.wall_s||0) + "s"],
-      ["model", lastJob.item.model],
-    ];
+    const item = lastJob.item || {};
+    const bits = [];
+    if(item.seed != null) bits.push(["seed", item.seed]);
+    if(item.steps != null) bits.push(["steps", item.steps]);
+    if(item.wall_s != null) bits.push(["wall", item.wall_s + "s"]);
+    if(item.model) bits.push(["model", item.model]);
+    if(item.parent) bits.push(["parent", item.parent]);
+    if(lastJob.preset) bits.push(["preset", lastJob.preset]);
     for(const [k,v] of bits){
       const span = document.createElement("span");
       span.textContent = k + " ";
       const b = document.createElement("b"); b.textContent = v;
       span.appendChild(b); meta.appendChild(span);
     }
+    const line = (item && item.honesty) || (lastJob.honesty ? HONESTY : "");
+    showHonesty(line);
   } else if(lastJob && lastJob.status === "failed"){
     prev.innerHTML = "";
     const ph = document.createElement("div");
     ph.className = "ph";
     ph.textContent = lastJob.error || "failed";
     prev.appendChild(ph);
+    showHonesty("");
   } else if(!st.queue.length){
     prev.innerHTML = "";
     const ph = document.createElement("div");
     ph.className = "ph";
     ph.textContent = "Nothing generating. Queue is empty.";
     prev.appendChild(ph);
+    showHonesty("");
   }
   const ql = $("qlist");
   ql.textContent = "";
   (st.queue||[]).forEach((j,i) => {
     const d = document.createElement("div"); d.className = "qitem";
-    const t = document.createElement("div"); t.className = "t"; t.textContent = j.prompt;
+    const t = document.createElement("div"); t.className = "t";
+    t.textContent = j.kind === "workflow" ? (j.preset || "workflow") : j.prompt;
     const s = document.createElement("div"); s.className = "s";
-    s.textContent = "queued #" + (i+1) + " · seed " + j.seed + " · " + j.model;
+    s.textContent = "queued #" + (i+1) + (j.seed != null ? (" · seed " + j.seed) : "") + (j.model ? (" · " + j.model) : "");
     d.appendChild(t); d.appendChild(s); ql.appendChild(d);
   });
 }
@@ -387,21 +649,34 @@ function renderGallery(items){
     const tile = document.createElement("div"); tile.className = "tile";
     const img = document.createElement("img");
     img.src = "/api/gallery/" + it.id + ".png";
-    img.alt = it.prompt || it.id;
+    img.alt = it.prompt || it.name || it.id;
     img.addEventListener("click", () => {
-      lastJob = {status:"done", item: it};
-      renderQueue({running:null, queue:[], depth:0});
-      $("prompt").value = it.prompt || "";
-      $("negative").value = it.negative_prompt || "";
-      $("seed").value = it.seed;
-      $("steps").value = it.steps || 8;
-      if(it.model) $("model").value = it.model;
-      onModel();
+      if(it.source === "upload"){
+        upload = it;
+        showUpload();
+      } else {
+        lastJob = {status:"done", item: it, honesty: it.honesty || false};
+        renderQueue({running:null, queue:[], depth:0});
+        $("prompt").value = it.prompt || "";
+        $("wfprompt").value = it.prompt || "";
+        $("negative").value = it.negative_prompt || "";
+        if(it.seed != null) $("seed").value = it.seed;
+        $("steps").value = it.steps || 8;
+        if(it.model) $("model").value = it.model;
+        onModel();
+      }
     });
     const cap = document.createElement("div"); cap.className = "cap";
-    const p = document.createElement("div"); p.className = "p"; p.textContent = it.prompt || "";
+    const p = document.createElement("div"); p.className = "p";
+    p.textContent = it.source === "upload" ? (it.name || "upload") : (it.prompt || "");
     const s = document.createElement("div"); s.className = "s";
-    s.textContent = "seed " + it.seed + " · " + (it.model||"").split("/").pop();
+    const bits = [];
+    if(it.source === "upload") bits.push("upload");
+    if(it.seed != null) bits.push("seed " + it.seed);
+    if(it.model) bits.push((it.model||"").split("/").pop());
+    if(it.parent) bits.push("from " + it.parent);
+    if(it.honesty) bits.push("re-rendered");
+    s.textContent = bits.join(" · ");
     const acts = document.createElement("div"); acts.className = "acts";
     const dl = document.createElement("a");
     dl.className = "ghost"; dl.textContent = "Download";
@@ -419,13 +694,27 @@ function renderGallery(items){
   }
 }
 
+function showUpload(){
+  if(!upload){ $("upthumb").hidden = true; return; }
+  $("upthumb").hidden = false;
+  $("upimg").src = "/api/gallery/" + upload.id + ".png?t=" + Date.now();
+  $("upname").textContent = upload.name || upload.id;
+  $("upmeta").textContent = (upload.width||"?") + " x " + (upload.height||"?");
+}
+
 async function loadGallery(){ renderGallery((await jget("/api/gallery")).items || []); }
 
 async function refreshModels(){
   const m = await jget("/api/models");
   if(m.npu) paintNpu(m.npu);
   loading = m.loading || null;
-  fillModels(m.models);
+  presets = m.presets || presets;
+  readModels = m.read || [];
+  thinkModels = m.think || [];
+  if(m.honesty) { /* server sentence; page already has the same words */ }
+  fillModels(m.models || m.render || []);
+  fillTaskModels();
+  if(presets.length && !$("preset").options.length) fillPresets();
   return m;
 }
 
@@ -480,8 +769,23 @@ async function doUnload(model, btn){
     await jsend("/api/unload", "POST", {model});
     showErr("");
     await refreshModels();
+    refreshPlan();
   }catch(e){ showErr(e.message); }
   if(btn) btn.disabled = false;
+}
+
+async function sendFile(file){
+  const data = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+  const item = (await jsend("/api/upload", "POST", {name: file.name, image: data})).item;
+  upload = item;
+  showUpload();
+  await loadGallery();
+  refreshPlan();
 }
 
 async function boot(){
@@ -496,7 +800,7 @@ async function boot(){
     if(d.host) $("host").placeholder = d.host;
     $("conninfo").textContent = d.gallery ? ("gallery  "+d.gallery) : "";
   }catch(e){ $("who").textContent = e.message; }
-  try{ await refreshModels(); }
+  try{ await refreshModels(); fillPresets(); }
   catch(e){ showErr(e.message); fillModels([]); }
   await loadGallery();
   await tick().catch(()=>{});
@@ -504,18 +808,65 @@ async function boot(){
 }
 
 $("model").addEventListener("change", onModel);
-$("loadbtn").addEventListener("click", async () => {
-  const model = $("model").value;
+$("preset").addEventListener("change", onPreset);
+$("read_model").addEventListener("change", refreshPlan);
+$("think_model").addEventListener("change", refreshPlan);
+$("render_model").addEventListener("change", refreshPlan);
+$("addstep").addEventListener("click", () => addCustomStep("read"));
+$("drop").addEventListener("click", () => $("file").click());
+$("drop").addEventListener("dragover", ev => { ev.preventDefault(); $("drop").classList.add("over"); });
+$("drop").addEventListener("dragleave", () => $("drop").classList.remove("over"));
+$("drop").addEventListener("drop", async ev => {
+  ev.preventDefault(); $("drop").classList.remove("over");
+  const file = ev.dataTransfer.files[0];
+  if(!file) return;
+  try{ showErr(""); await sendFile(file); }
+  catch(e){ showErr(e.message); }
+});
+$("file").addEventListener("change", async ev => {
+  const file = ev.target.files[0];
+  if(!file) return;
+  try{ showErr(""); await sendFile(file); }
+  catch(e){ showErr(e.message); }
+  ev.target.value = "";
+});
+async function loadNamed(model, btn){
   if(!model) return;
   showErr("");
-  $("loadbtn").disabled = true;
+  if(btn) btn.disabled = true;
   try{
     await jsend("/api/load", "POST", {model});
     tick().catch(e => showErr(e.message));
   }catch(e){
     showErr(e.message);
-    $("loadbtn").disabled = false;
+    if(btn) btn.disabled = false;
     onModel();
+  }
+}
+$("loadbtn").addEventListener("click", () => loadNamed($("model").value, $("loadbtn")));
+$("loadread").addEventListener("click", () => loadNamed($("read_model").value, $("loadread")));
+$("loadthink").addEventListener("click", () => loadNamed($("think_model").value, $("loadthink")));
+$("loadrender").addEventListener("click", () => loadNamed($("render_model").value, $("loadrender")));
+$("wf").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  showErr("");
+  try{
+    const r = await jsend("/api/workflow", "POST", wfBody(wfConfirm));
+    wfConfirm = false;
+    watch = r.job.id;
+    lastJob = r.job;
+    if(r.job.seed) $("seed").value = r.job.seed;
+    tick().catch(e => showErr(e.message));
+  }catch(e){
+    if(e.status === 409 && e.body && e.body.needs_confirm){
+      wfConfirm = true;
+      $("planbox").hidden = false;
+      $("planbox").textContent = e.message;
+      $("wfrun").textContent = "Confirm swap and run";
+      showErr("");
+      return;
+    }
+    showErr(e.message);
   }
 });
 $("form").addEventListener("submit", async ev => {

@@ -2,9 +2,9 @@
   "manifest": 1,
   "id": "image-studio",
   "name": "Image Studio",
-  "version": "0.2.0",
-  "tagline": "Generate 512x512 plates on your box and keep them after an update.",
-  "description": "Pick a Text-to-Image model, load it from the rail if it is not resident, write a prompt, get a PNG. The gallery lives in ~/.local/share/tiiny-image-studio/ so a farm update does not throw it away. One inference at a time, because that is what the hardware does. The rail shows NPU units used and free, and greys out a model that will not fit. It does not do background removal, outpainting or character sheets.",
+  "version": "0.3.0",
+  "tagline": "Upload, describe, and re-render on your box. Keep the gallery after an update.",
+  "description": "Chain read, think and render steps on the models actually installed. Upload a png, describe it, re-render a change, refine a plate, or restyle with a model from the shelf. jpeg and webp are refused; png is the format this can decode on Linux. The box cannot edit pixels in an upload, so a chain that starts from a photo paints a new plate and says so. Gallery in ~/.local/share/tiiny-image-studio/. One inference at a time. NPU units used and free, never megabytes.",
   "author": {
     "name": "Jason Brashear",
     "github": "webdevtodayjason"
