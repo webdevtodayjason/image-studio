@@ -1,0 +1,63 @@
+{
+  "manifest": 1,
+  "id": "image-studio",
+  "name": "Image Studio",
+  "version": "0.1.0",
+  "tagline": "Generate 512x512 plates on your box and keep them after an update.",
+  "description": "Pick a Text-to-Image model that is already loaded, write a prompt, get a PNG. The gallery lives in ~/.local/share/tiiny-image-studio/ so a farm update does not throw it away. One inference at a time, because that is what the hardware does. Version one does not load or unload models, and it does not do background removal, outpainting or character sheets.",
+  "author": {
+    "name": "Jason Brashear",
+    "github": "webdevtodayjason"
+  },
+  "license": "MIT",
+  "icon": "",
+  "categories": [
+    "creative",
+    "images"
+  ],
+  "needs": {
+    "models": [],
+    "npu_resident": 0,
+    "npu_peak": 0,
+    "runtime": {
+      "python": ">=3.9",
+      "deps": []
+    },
+    "disk_mb": 50
+  },
+  "asks_for": [
+    {
+      "what": "device-key",
+      "why": "to call /v1/image/generate on your box"
+    },
+    {
+      "what": "network-lan",
+      "why": "to reach the Tiiny on your own network"
+    },
+    {
+      "what": "disk",
+      "why": "plates are PNG files plus a JSON sidecar, one pair per image",
+      "path": "~/.local/share/tiiny-image-studio"
+    }
+  ],
+  "provides": {
+    "web": {
+      "port": 8430,
+      "path": "/"
+    },
+    "cli": "python3 studio.py"
+  },
+  "plant": {
+    "run": "python3 studio.py --serve 8430",
+    "check": "python3 studio.py --selfcheck",
+    "env": [
+      "TIINY_BASE",
+      "TIINY_KEY"
+    ]
+  },
+  "privacy": {
+    "egress": "none",
+    "telemetry": false,
+    "stores": "Generated PNGs and their prompts, seeds and models, on this machine only."
+  }
+}

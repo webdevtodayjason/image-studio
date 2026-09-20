@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Image Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ground:#101214; --s1:#16191c; --s2:#1d2126; --s3:#242930;
+  --line:#2a2f36; --line2:#363c45;
+  --steel:#8b929c; --dim:#616873; --ink:#F5F3EE;
+  --orange:#EF7D22; --hot:#ffb968;
+  --cool:#6fb3c9; --good:#7fb069; --bad:#d1564a;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"DejaVu Sans Mono",Consolas,monospace;
+}
+html{background:var(--ground);color-scheme:dark}
+body{
+  font-family:var(--mono);color:var(--ink);font-size:14px;line-height:1.55;
+  letter-spacing:-.01em;-webkit-font-smoothing:antialiased;background:var(--ground);
+  min-height:100dvh;padding:0 clamp(16px,3vw,36px) 48px;
+}
+a{color:inherit}
+header{
+  padding:26px 0 18px;border-bottom:1px solid var(--line);margin-bottom:22px;
+  display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+}
+.mark{
+  width:34px;height:34px;border-radius:8px;background:#2a1a0c;color:var(--orange);
+  display:grid;place-items:center;font-weight:700;font-size:16px;flex:none;
+}
+h1{font-size:clamp(20px,2.6vw,28px);font-weight:600;letter-spacing:-.04em;line-height:1.05}
+h1 em{font-style:normal;color:var(--orange)}
+.sub{color:var(--steel);font-size:12.5px;margin-top:4px;max-width:62ch}
+header .right{margin-left:auto;font-size:11.5px;color:var(--dim);text-align:right;white-space:pre-line}
+header .right b{color:var(--steel);font-weight:400}
+.layout{display:grid;gap:18px;grid-template-columns:minmax(280px,380px) minmax(0,1fr)}
+@media (max-width:860px){.layout{grid-template-columns:1fr}}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:7px}
+.card .hd{padding:11px 15px;border-bottom:1px solid var(--line);font-size:10.5px;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--steel);background:var(--s2);
+  border-radius:7px 7px 0 0;display:flex;align-items:center;gap:8px}
+.card .hd .r{margin-left:auto;color:var(--orange);letter-spacing:.04em;text-transform:none}
+.card .bd{padding:15px}
+label.lab{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;
+  font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--steel)}
+input.txt,select.txt,textarea.txt{
+  background:var(--ground);border:1px solid var(--line2);color:var(--ink);font:inherit;
+  font-size:13px;padding:9px 12px;border-radius:5px;letter-spacing:0;text-transform:none;
+}
+textarea.txt{min-height:92px;resize:vertical;line-height:1.5}
+input.txt:focus,select.txt:focus,textarea.txt:focus{outline:none;border-color:var(--orange)}
+.row2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+button.go{background:var(--orange);border:0;color:#160d05;font:inherit;font-weight:600;
+  font-size:13px;padding:10px 18px;border-radius:5px;cursor:pointer;width:100%;
+  letter-spacing:.02em}
+button.go:hover{filter:brightness(1.08)}
+button.go[disabled]{opacity:.35;cursor:not-allowed;filter:none}
+button.ghost,a.ghost{background:var(--s2);border:1px solid var(--line2);color:var(--steel);font:inherit;
+  font-size:12px;padding:7px 12px;border-radius:5px;cursor:pointer;text-decoration:none;
+  display:inline-flex;align-items:center}
+button.ghost:hover,a.ghost:hover{border-color:var(--steel);color:var(--ink)}
+button.danger{border-color:#6b2f28;color:var(--bad)}
+.note{color:var(--dim);font-size:11.5px;margin-top:10px}
+.warn{background:#1d1509;border:1px solid #5c3d12;border-radius:7px;padding:11px 14px;
+  margin-bottom:12px;font-size:12.5px;color:#e8c89a}
+.warn[hidden],.errbox[hidden],.empty[hidden]{display:none}
+.errbox{background:#1d1010;border:1px solid #6b2f28;border-radius:7px;padding:11px 14px;
+  margin-bottom:12px;font-size:12.5px;color:var(--bad)}
+.pill{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  padding:2px 7px;border-radius:3px;border:1px solid var(--line2);color:var(--steel)}
+.pill.live{border-color:#4a7c3f;color:var(--good)}
+.qitem{padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.qitem:last-child{border-bottom:0}
+.qitem .t{color:var(--ink);word-break:break-word}
+.qitem .s{color:var(--dim);font-size:11px;margin-top:3px}
+.preview{background:var(--s3);border-radius:6px;min-height:280px;display:grid;place-items:center;
+  overflow:hidden}
+.preview img{width:100%;height:auto;display:block}
+.preview .ph{color:var(--dim);font-size:12px;padding:24px;text-align:center;max-width:36ch}
+.meta{margin-top:10px;font-size:12px;color:var(--steel);display:flex;flex-wrap:wrap;gap:10px}
+.meta b{color:var(--ink);font-weight:500}
+.ghead{display:flex;align-items:baseline;gap:12px;margin:28px 0 12px}
+h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--steel)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.tile{background:var(--s1);border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  display:flex;flex-direction:column}
+.tile img{width:100%;aspect-ratio:1;object-fit:cover;background:var(--s3);display:block;
+  cursor:pointer}
+.tile .cap{padding:10px 12px 12px;font-size:12px}
+.tile .cap .p{color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}
+.tile .cap .s{color:var(--dim);font-size:11px;margin-top:4px}
+.tile .acts{display:flex;gap:8px;margin-top:8px}
+.empty{color:var(--dim);text-align:center;padding:28px 12px;font-size:12.5px}
+.conn{margin-top:28px;padding-top:16px;border-top:1px solid var(--line);
+  display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;font-size:12px;color:var(--dim)}
+.conn label{display:flex;flex-direction:column;gap:5px;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--steel)}
+.conn input.txt{width:min(280px,100%)}
+.conn .save{margin-bottom:1px}
+</style>
+<body>
+<header>
+  <div class="mark">IS</div>
+  <div>
+    <h1>Image <em>Studio</em></h1>
+    <p class="sub">512x512 plates from the Text-to-Image models already on this box. One at a time. The gallery lives on this machine, not in the install.</p>
+  </div>
+  <div class="right" id="who">looking for a box</div>
+</header>
+
+<div id="err" class="errbox" hidden></div>
+<div id="warn" class="warn" hidden></div>
+
+<div class="layout">
+  <form class="card" id="form" autocomplete="off">
+    <div class="hd">Generate <span class="r">512 x 512</span></div>
+    <div class="bd">
+      <label class="lab">Model
+        <select class="txt" id="model"></select>
+      </label>
+      <label class="lab">Prompt
+        <textarea class="txt" id="prompt" required placeholder="a lighthouse on a rocky shore at dusk, painterly"></textarea>
+      </label>
+      <label class="lab">Negative prompt
+        <input class="txt" id="negative" placeholder="optional">
+      </label>
+      <div class="row2">
+        <label class="lab">Seed
+          <input class="txt" id="seed" placeholder="blank = new">
+        </label>
+        <label class="lab">Steps
+          <input class="txt" id="steps" type="number" min="1" value="8">
+        </label>
+      </div>
+      <button class="go" id="go" type="submit">Generate</button>
+      <p class="note">The seed that actually ran is saved with the plate, so you can reproduce it. This app never loads a model.</p>
+    </div>
+  </form>
+
+  <div>
+    <div class="card">
+      <div class="hd">Now <span class="r" id="qdepth"></span></div>
+      <div class="bd">
+        <div class="preview" id="preview"><div class="ph">Nothing generating. Queue is empty.</div></div>
+        <div class="meta" id="nowmeta"></div>
+        <div id="qlist"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ghead">
+  <h2>Gallery</h2>
+  <span class="note" id="gcount"></span>
+</div>
+<div class="grid" id="gallery"></div>
+<p class="empty" id="gempty">Nothing on disk yet. Generate one.</p>
+
+<form class="conn" id="conn">
+  <label>Device address
+    <input class="txt" id="host" placeholder="172.17.x.x or a hostname">
+  </label>
+  <label>API key
+    <input class="txt" id="key" placeholder="leave blank to keep the current one">
+  </label>
+  <button class="ghost save" type="submit">Save</button>
+  <span id="conninfo"></span>
+</form>
+
+<script>
+const $ = id => document.getElementById(id);
+const errBox = $("err"), warnBox = $("warn");
+let watch = null, lastJob = null, models = [];
+
+function showErr(t){ if(!t){errBox.hidden=true;errBox.textContent="";return;} errBox.hidden=false; errBox.textContent=t; }
+function showWarn(t){ if(!t){warnBox.hidden=true;warnBox.textContent="";return;} warnBox.hidden=false; warnBox.textContent=t; }
+
+async function jget(url){
+  const r = await fetch(url);
+  const t = await r.text();
+  let d; try{ d = JSON.parse(t); }catch(e){ d = {error:t||r.statusText}; }
+  if(!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+async function jsend(url, method, body){
+  const r = await fetch(url, {method, headers: body?{"Content-Type":"application/json"}:{},
+    body: body?JSON.stringify(body):undefined});
+  const t = await r.text();
+  let d; try{ d = JSON.parse(t); }catch(e){ d = {error:t||r.statusText}; }
+  if(!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+
+function fillModels(list){
+  models = list || [];
+  const sel = $("model");
+  const keep = sel.value;
+  sel.textContent = "";
+  if(!models.length){
+    const o = document.createElement("option");
+    o.textContent = "no Text-to-Image models installed";
+    o.value = "";
+    sel.appendChild(o);
+    $("go").disabled = true;
+    return;
+  }
+  for(const m of models){
+    const o = document.createElement("option");
+    o.value = m.id;
+    o.textContent = (m.display_name || m.id.split("/").pop())
+      + (m.loaded ? "  · loaded" : "  · not loaded")
+      + (m.npu_usage != null ? "  · "+m.npu_usage+" NPU" : "");
+    sel.appendChild(o);
+  }
+  const loaded = models.find(m => m.loaded);
+  sel.value = models.some(m => m.id === keep) ? keep : (loaded ? loaded.id : models[0].id);
+  onModel();
+}
+
+function onModel(){
+  const m = models.find(x => x.id === $("model").value);
+  $("go").disabled = !m;
+  if(!m) return;
+  if(m.loaded) showWarn("");
+  else showWarn(m.id + " is installed but not loaded. Load it in TiinyOS. This app does not load models.");
+}
+
+function renderQueue(st){
+  const depth = st.depth || 0;
+  $("qdepth").textContent = depth ? (depth + (depth===1?" job":" jobs")) : "idle";
+  const run = st.running;
+  const prev = $("preview");
+  const meta = $("nowmeta");
+  meta.textContent = "";
+  if(run){
+    prev.innerHTML = "";
+    const ph = document.createElement("div");
+    ph.className = "ph";
+    ph.textContent = "Generating · " + (run.elapsed_s||0) + "s · seed " + run.seed;
+    prev.appendChild(ph);
+    const b = document.createElement("b"); b.textContent = run.model;
+    const s = document.createElement("span"); s.textContent = run.prompt;
+    meta.appendChild(b); meta.appendChild(s);
+  } else if(lastJob && lastJob.status === "done" && lastJob.item){
+    prev.innerHTML = "";
+    const img = document.createElement("img");
+    img.alt = lastJob.item.prompt;
+    img.src = "/api/gallery/" + lastJob.item.id + ".png?t=" + Date.now();
+    prev.appendChild(img);
+    meta.innerHTML = "";
+    const bits = [
+      ["seed", lastJob.item.seed],
+      ["steps", lastJob.item.steps],
+      ["wall", (lastJob.item.wall_s||0) + "s"],
+      ["model", lastJob.item.model],
+    ];
+    for(const [k,v] of bits){
+      const span = document.createElement("span");
+      span.textContent = k + " ";
+      const b = document.createElement("b"); b.textContent = v;
+      span.appendChild(b); meta.appendChild(span);
+    }
+  } else if(lastJob && lastJob.status === "failed"){
+    prev.innerHTML = "";
+    const ph = document.createElement("div");
+    ph.className = "ph";
+    ph.textContent = lastJob.error || "failed";
+    prev.appendChild(ph);
+  } else if(!st.queue.length){
+    prev.innerHTML = "";
+    const ph = document.createElement("div");
+    ph.className = "ph";
+    ph.textContent = "Nothing generating. Queue is empty.";
+    prev.appendChild(ph);
+  }
+  const ql = $("qlist");
+  ql.textContent = "";
+  (st.queue||[]).forEach((j,i) => {
+    const d = document.createElement("div"); d.className = "qitem";
+    const t = document.createElement("div"); t.className = "t"; t.textContent = j.prompt;
+    const s = document.createElement("div"); s.className = "s";
+    s.textContent = "queued #" + (i+1) + " · seed " + j.seed + " · " + j.model;
+    d.appendChild(t); d.appendChild(s); ql.appendChild(d);
+  });
+}
+
+function renderGallery(items){
+  const g = $("gallery");
+  g.textContent = "";
+  $("gempty").hidden = items.length > 0;
+  $("gcount").textContent = items.length ? (items.length + " on disk") : "";
+  for(const it of items){
+    const tile = document.createElement("div"); tile.className = "tile";
+    const img = document.createElement("img");
+    img.src = "/api/gallery/" + it.id + ".png";
+    img.alt = it.prompt || it.id;
+    img.addEventListener("click", () => {
+      lastJob = {status:"done", item: it};
+      renderQueue({running:null, queue:[], depth:0});
+      $("prompt").value = it.prompt || "";
+      $("negative").value = it.negative_prompt || "";
+      $("seed").value = it.seed;
+      $("steps").value = it.steps || 8;
+      if(it.model) $("model").value = it.model;
+      onModel();
+    });
+    const cap = document.createElement("div"); cap.className = "cap";
+    const p = document.createElement("div"); p.className = "p"; p.textContent = it.prompt || "";
+    const s = document.createElement("div"); s.className = "s";
+    s.textContent = "seed " + it.seed + " · " + (it.model||"").split("/").pop();
+    const acts = document.createElement("div"); acts.className = "acts";
+    const dl = document.createElement("a");
+    dl.className = "ghost"; dl.textContent = "Download";
+    dl.href = "/api/gallery/" + it.id + ".png";
+    dl.download = it.id + ".png";
+    const del = document.createElement("button");
+    del.className = "ghost danger"; del.type = "button"; del.textContent = "Delete";
+    del.addEventListener("click", async () => {
+      try{ await jsend("/api/gallery/"+it.id, "DELETE"); await loadGallery(); }
+      catch(e){ showErr(e.message); }
+    });
+    acts.appendChild(dl); acts.appendChild(del);
+    cap.appendChild(p); cap.appendChild(s); cap.appendChild(acts);
+    tile.appendChild(img); tile.appendChild(cap); g.appendChild(tile);
+  }
+}
+
+async function loadGallery(){ renderGallery((await jget("/api/gallery")).items || []); }
+
+async function tick(){
+  const q = watch ? ("?job="+encodeURIComponent(watch)) : "";
+  const st = await jget("/api/status"+q);
+  if(st.job) lastJob = st.job;
+  renderQueue(st);
+  if(st.job && (st.job.status==="done" || st.job.status==="failed")){
+    if(st.job.status==="failed") showErr(st.job.error);
+    if(st.job.status==="done"){ showErr(""); await loadGallery(); }
+    watch = null;
+  }
+  if(!watch && !st.running && !(st.queue||[]).length) return;
+  setTimeout(() => tick().catch(e => showErr(e.message)), 800);
+}
+
+async function boot(){
+  try{
+    const d = await jget("/api/device");
+    const name = (d.device && (d.device.name || d.device.serial)) || d.host || "no box yet";
+    $("who").innerHTML = "";
+    const b = document.createElement("b"); b.textContent = name;
+    $("who").appendChild(b);
+    $("who").appendChild(document.createTextNode(
+      d.host ? ("\n"+d.host+" · "+(d.transport||"?")+(d.key_set?" · key "+d.key_hint:"")) : "\nset an address below"));
+    if(d.host) $("host").placeholder = d.host;
+    $("conninfo").textContent = d.gallery ? ("gallery  "+d.gallery) : "";
+  }catch(e){ $("who").textContent = e.message; }
+  try{
+    const m = await jget("/api/models");
+    fillModels(m.models);
+    if(m.npu && m.npu.total){
+      const extra = "NPU "+(m.npu.used||0)+"/"+(m.npu.total);
+      $("who").appendChild(document.createTextNode(" · "+extra));
+    }
+  }catch(e){ showErr(e.message); fillModels([]); }
+  await loadGallery();
+  await tick().catch(()=>{});
+}
+
+$("model").addEventListener("change", onModel);
+$("form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  showErr("");
+  const body = {
+    model: $("model").value,
+    prompt: $("prompt").value,
+    negative_prompt: $("negative").value,
+    seed: $("seed").value,
+    steps: $("steps").value,
+  };
+  try{
+    const r = await jsend("/api/generate", "POST", body);
+    watch = r.job.id;
+    lastJob = r.job;
+    $("seed").value = r.job.seed;
+    $("go").disabled = true;
+    setTimeout(() => { $("go").disabled = false; onModel(); }, 400);
+    tick().catch(e => showErr(e.message));
+  }catch(e){ showErr(e.message); }
+});
+$("conn").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  try{
+    const body = {};
+    if($("host").value.trim()) body.host = $("host").value.trim();
+    if($("key").value.trim()) body.key = $("key").value.trim();
+    await jsend("/api/device", "POST", body);
+    $("key").value = "";
+    await boot();
+  }catch(e){ showErr(e.message); }
+});
+boot();
+</script>
