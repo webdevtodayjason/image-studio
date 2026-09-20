@@ -2,8 +2,9 @@
 
 Copied in shape from tiiny-bench/bench.py: same discovery order, same
 port-then-vhost walk, same rule that a refused connection (and only a refused
-connection) moves a service onto port 80. The gallery and the queue live in
-studio.py; this file does not load or unload models.
+connection) moves a service onto port 80. load() and unload() are the same
+helpers the bench uses, so a start is not reported ready until the model is
+actually up.
 """
 import errno
 import glob
@@ -19,7 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -52,6 +53,13 @@ KEY_SOURCE = ""
 
 MAX_CAPTURE = 2000
 NOT_LOADED_TYPE = "service_unavailable"
+# bench.py waits this long between polls, then this long after the id shows
+# in /running, because the runtime is listed before it will answer. Tests
+# drop these so a load does not take six seconds.
+LOAD_POLL_S = 4.0
+LOAD_SETTLE_S = 2.0
+UNLOAD_SETTLE_S = 1.5
+LOAD_WAIT_S = 420
 
 
 class Call:
@@ -638,6 +646,77 @@ def running(tok):
 def npu_status(tok):
     s = api(gw("/api/v1/models/npu/status"), tok, timeout=30)
     return {} if not isinstance(s, dict) or "_error" in s else s
+
+
+def npu_free(tok):
+    s = npu_status(tok)
+    return s.get("npu_available"), s.get("npu_total")
+
+
+def running_detail(tok):
+    """What is loaded right now, with each instance's units and status."""
+    d = api(gw("/api/v1/models/running"), tok, timeout=30)
+    if not isinstance(d, dict) or "_error" in d:
+        return {}
+    return d
+
+
+def _npu_rows(units):
+    return [m for m in (units.get("models") or []) if isinstance(m, dict)]
+
+
+def _model_status(units, model):
+    for m in _npu_rows(units):
+        if (m.get("model_id") or m.get("id")) == model:
+            return m.get("status") or "running"
+    return None
+
+
+def load(tok, model, poll_s=None):
+    """Start a model and wait for it to actually answer.
+
+    Copied from tiiny-bench/bench.py. The runtime is listed in /running before
+    it is settled, and a call made in that window comes back 502. Two seconds
+    of patience here is cheaper than a generate that looks like a dead model.
+
+    npu/status is polled as well because a start that does not fit is accepted,
+    sits there as "loading", and then vanishes. That is the only place the
+    rollback can be seen.
+    """
+    if poll_s is None:
+        poll_s = LOAD_WAIT_S
+    units = npu_status(tok)
+    if model in running(tok) and _model_status(units, model) != "loading":
+        return True
+    enc = urllib.parse.quote(model, safe="")
+    t0 = time.time()
+    started = api(gw("/api/v1/models/%s/start" % enc), tok, body={},
+                  timeout=min(poll_s, 120))
+    if isinstance(started, dict) and started.get("_error"):
+        return False
+    seen_loading = False
+    while time.time() - t0 < poll_s:
+        units = npu_status(tok)
+        status = _model_status(units, model)
+        live = running(tok)
+        if status == "loading":
+            seen_loading = True
+            time.sleep(LOAD_POLL_S)
+            continue
+        if model in live:
+            time.sleep(LOAD_SETTLE_S)
+            return True
+        names = [(m.get("model_id") or m.get("id")) for m in _npu_rows(units)]
+        if seen_loading and model not in live and model not in names:
+            return False
+        time.sleep(LOAD_POLL_S)
+    return False
+
+
+def unload(tok, model):
+    enc = urllib.parse.quote(model, safe="")
+    api(gw("/api/v1/models/%s/stop" % enc), tok, body={}, timeout=180)
+    time.sleep(UNLOAD_SETTLE_S)
 
 
 def not_loaded(v):

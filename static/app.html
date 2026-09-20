@@ -4,13 +4,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Image Studio</title>
 <style>
+/* Scope cyan #4FD0C8 is the accent: a waveform monitor's 100% line, not
+   TiinyBench's amber. Ground and type scale stay in the family. */
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
   --ground:#101214; --s1:#16191c; --s2:#1d2126; --s3:#242930;
   --line:#2a2f36; --line2:#363c45;
-  --steel:#8b929c; --dim:#616873; --ink:#F5F3EE;
-  --orange:#EF7D22; --hot:#ffb968;
-  --cool:#6fb3c9; --good:#7fb069; --bad:#d1564a;
+  --steel:#8b929c; --dim:#616873; --ink:#E8EEF2;
+  --accent:#4FD0C8; --accent-ink:#061618;
+  --good:#6BBF8A; --bad:#E892A8;
   --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"DejaVu Sans Mono",Consolas,monospace;
 }
 html{background:var(--ground);color-scheme:dark}
@@ -25,32 +27,40 @@ header{
   display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
 }
 .mark{
-  width:34px;height:34px;border-radius:8px;background:#2a1a0c;color:var(--orange);
+  width:34px;height:34px;border-radius:8px;background:#0C1C1E;color:var(--accent);
   display:grid;place-items:center;font-weight:700;font-size:16px;flex:none;
 }
 h1{font-size:clamp(20px,2.6vw,28px);font-weight:600;letter-spacing:-.04em;line-height:1.05}
-h1 em{font-style:normal;color:var(--orange)}
+h1 em{font-style:normal;color:var(--accent)}
 .sub{color:var(--steel);font-size:12.5px;margin-top:4px;max-width:62ch}
 header .right{margin-left:auto;font-size:11.5px;color:var(--dim);text-align:right;white-space:pre-line}
 header .right b{color:var(--steel);font-weight:400}
 .layout{display:grid;gap:18px;grid-template-columns:minmax(280px,380px) minmax(0,1fr)}
 @media (max-width:860px){.layout{grid-template-columns:1fr}}
+.rail{display:flex;flex-direction:column;gap:18px}
 .card{background:var(--s1);border:1px solid var(--line);border-radius:7px}
 .card .hd{padding:11px 15px;border-bottom:1px solid var(--line);font-size:10.5px;
   letter-spacing:.13em;text-transform:uppercase;color:var(--steel);background:var(--s2);
   border-radius:7px 7px 0 0;display:flex;align-items:center;gap:8px}
-.card .hd .r{margin-left:auto;color:var(--orange);letter-spacing:.04em;text-transform:none}
+.card .hd .r{margin-left:auto;color:var(--accent);letter-spacing:.04em;text-transform:none}
 .card .bd{padding:15px}
 label.lab{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;
   font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--steel)}
 input.txt,select.txt,textarea.txt{
   background:var(--ground);border:1px solid var(--line2);color:var(--ink);font:inherit;
   font-size:13px;padding:9px 12px;border-radius:5px;letter-spacing:0;text-transform:none;
+  width:100%;min-width:0;
 }
 textarea.txt{min-height:92px;resize:vertical;line-height:1.5}
-input.txt:focus,select.txt:focus,textarea.txt:focus{outline:none;border-color:var(--orange)}
+input.txt:focus,select.txt:focus,textarea.txt:focus{outline:none;border-color:var(--accent)}
+select.txt option:disabled{color:var(--dim)}
 .row2{display:grid;gap:10px;grid-template-columns:1fr 1fr}
-button.go{background:var(--orange);border:0;color:#160d05;font:inherit;font-weight:600;
+.row2>*{min-width:0}
+.modelrow{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;min-width:0}
+.modelrow .lab{margin-bottom:0;min-width:0}
+.modelrow select.txt{width:100%;min-width:0;max-width:100%}
+.modelrow .ghost{align-self:flex-start}
+button.go{background:var(--accent);border:0;color:var(--accent-ink);font:inherit;font-weight:600;
   font-size:13px;padding:10px 18px;border-radius:5px;cursor:pointer;width:100%;
   letter-spacing:.02em}
 button.go:hover{filter:brightness(1.08)}
@@ -59,16 +69,25 @@ button.ghost,a.ghost{background:var(--s2);border:1px solid var(--line2);color:va
   font-size:12px;padding:7px 12px;border-radius:5px;cursor:pointer;text-decoration:none;
   display:inline-flex;align-items:center}
 button.ghost:hover,a.ghost:hover{border-color:var(--steel);color:var(--ink)}
-button.danger{border-color:#6b2f28;color:var(--bad)}
+button.ghost[disabled]{opacity:.35;cursor:not-allowed}
+button.danger{border-color:#6A3048;color:var(--bad)}
 .note{color:var(--dim);font-size:11.5px;margin-top:10px}
-.warn{background:#1d1509;border:1px solid #5c3d12;border-radius:7px;padding:11px 14px;
-  margin-bottom:12px;font-size:12.5px;color:#e8c89a}
+.warn{background:#122024;border:1px solid #2A5A5E;border-radius:7px;padding:11px 14px;
+  margin-bottom:12px;font-size:12.5px;color:#C5E4E0}
 .warn[hidden],.errbox[hidden],.empty[hidden]{display:none}
-.errbox{background:#1d1010;border:1px solid #6b2f28;border-radius:7px;padding:11px 14px;
+.errbox{background:#1A1014;border:1px solid #6A3048;border-radius:7px;padding:11px 14px;
   margin-bottom:12px;font-size:12.5px;color:var(--bad)}
 .pill{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   padding:2px 7px;border-radius:3px;border:1px solid var(--line2);color:var(--steel)}
 .pill.live{border-color:#4a7c3f;color:var(--good)}
+.meter{height:6px;background:var(--s3);border-radius:99px;overflow:hidden;margin-bottom:12px}
+.meter i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px}
+.res{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);
+  font-size:12.5px}
+.res:last-child{border-bottom:0}
+.res .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res .u{color:var(--dim);font-size:11px;flex:none}
+.res .ghost{padding:4px 9px;font-size:11px}
 .qitem{padding:10px 0;border-bottom:1px solid var(--line);font-size:12.5px}
 .qitem:last-child{border-bottom:0}
 .qitem .t{color:var(--ink);word-break:break-word}
@@ -98,13 +117,17 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
   text-transform:uppercase;color:var(--steel)}
 .conn input.txt{width:min(280px,100%)}
 .conn .save{margin-bottom:1px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  button.go,button.ghost,.meter i{transition:none}
+}
 </style>
 <body>
 <header>
   <div class="mark">IS</div>
   <div>
     <h1>Image <em>Studio</em></h1>
-    <p class="sub">512x512 plates from the Text-to-Image models already on this box. One at a time. The gallery lives on this machine, not in the install.</p>
+    <p class="sub">512x512 plates from the Text-to-Image models on this box. Load and unload from the rail. One generate at a time. The gallery lives on this machine, not in the install.</p>
   </div>
   <div class="right" id="who">looking for a box</div>
 </header>
@@ -113,30 +136,42 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
 <div id="warn" class="warn" hidden></div>
 
 <div class="layout">
-  <form class="card" id="form" autocomplete="off">
-    <div class="hd">Generate <span class="r">512 x 512</span></div>
-    <div class="bd">
-      <label class="lab">Model
-        <select class="txt" id="model"></select>
-      </label>
-      <label class="lab">Prompt
-        <textarea class="txt" id="prompt" required placeholder="a lighthouse on a rocky shore at dusk, painterly"></textarea>
-      </label>
-      <label class="lab">Negative prompt
-        <input class="txt" id="negative" placeholder="optional">
-      </label>
-      <div class="row2">
-        <label class="lab">Seed
-          <input class="txt" id="seed" placeholder="blank = new">
-        </label>
-        <label class="lab">Steps
-          <input class="txt" id="steps" type="number" min="1" value="8">
-        </label>
+  <div class="rail">
+    <div class="card" id="npucard">
+      <div class="hd">NPU <span class="r" id="npufig"></span></div>
+      <div class="bd">
+        <div class="meter" aria-hidden="true"><i id="npufill"></i></div>
+        <div id="resident"></div>
       </div>
-      <button class="go" id="go" type="submit">Generate</button>
-      <p class="note">The seed that actually ran is saved with the plate, so you can reproduce it. This app never loads a model.</p>
     </div>
-  </form>
+    <form class="card" id="form" autocomplete="off">
+      <div class="hd">Generate <span class="r">512 x 512</span></div>
+      <div class="bd">
+        <div class="modelrow">
+          <label class="lab">Model
+            <select class="txt" id="model"></select>
+          </label>
+          <button class="ghost" id="loadbtn" type="button">Load</button>
+        </div>
+        <label class="lab">Prompt
+          <textarea class="txt" id="prompt" required placeholder="a lighthouse on a rocky shore at dusk, painterly"></textarea>
+        </label>
+        <label class="lab">Negative prompt
+          <input class="txt" id="negative" placeholder="optional">
+        </label>
+        <div class="row2">
+          <label class="lab">Seed
+            <input class="txt" id="seed" placeholder="blank = new">
+          </label>
+          <label class="lab">Steps
+            <input class="txt" id="steps" type="number" min="1" value="8">
+          </label>
+        </div>
+        <button class="go" id="go" type="submit">Generate</button>
+        <p class="note">The seed that actually ran is saved with the plate, so you can reproduce it. Models that will not fit the free units are greyed out.</p>
+      </div>
+    </form>
+  </div>
 
   <div>
     <div class="card">
@@ -171,7 +206,7 @@ h2{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--stee
 <script>
 const $ = id => document.getElementById(id);
 const errBox = $("err"), warnBox = $("warn");
-let watch = null, lastJob = null, models = [];
+let watch = null, lastJob = null, models = [], npuLive = null, loading = null, npuTimer = null;
 
 function showErr(t){ if(!t){errBox.hidden=true;errBox.textContent="";return;} errBox.hidden=false; errBox.textContent=t; }
 function showWarn(t){ if(!t){warnBox.hidden=true;warnBox.textContent="";return;} warnBox.hidden=false; warnBox.textContent=t; }
@@ -192,6 +227,42 @@ async function jsend(url, method, body){
   return d;
 }
 
+function paintNpu(npu){
+  npuLive = npu || npuLive;
+  if(!npuLive) return;
+  const used = npuLive.used||0, total = npuLive.total||100;
+  const free = (npuLive.free==null) ? Math.max(0, total-used) : npuLive.free;
+  $("npufig").textContent = used + " used · " + free + " free · " + total;
+  const pct = total ? (100 * used / total) : 0;
+  $("npufill").style.width = Math.max(0, Math.min(100, pct)).toFixed(0) + "%";
+  $("npufill").style.background = pct >= 95 ? "var(--bad)" : "var(--accent)";
+  const box = $("resident");
+  box.textContent = "";
+  const rows = npuLive.resident || [];
+  if(!rows.length){
+    const p = document.createElement("p");
+    p.className = "note";
+    p.style.marginTop = "0";
+    p.textContent = "Nothing resident.";
+    box.appendChild(p);
+    return;
+  }
+  for(const r of rows){
+    const row = document.createElement("div"); row.className = "res";
+    const name = document.createElement("span"); name.className = "n";
+    name.textContent = (r.id||"").split("/").pop();
+    name.title = r.id;
+    const u = document.createElement("span"); u.className = "u";
+    u.textContent = (r.npu_usage==null ? "?" : r.npu_usage) + "u"
+      + (r.status && r.status !== "running" ? " · "+r.status : "");
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "ghost"; btn.textContent = "Unload";
+    btn.addEventListener("click", () => doUnload(r.id, btn));
+    row.appendChild(name); row.appendChild(u); row.appendChild(btn);
+    box.appendChild(row);
+  }
+}
+
 function fillModels(list){
   models = list || [];
   const sel = $("model");
@@ -203,27 +274,49 @@ function fillModels(list){
     o.value = "";
     sel.appendChild(o);
     $("go").disabled = true;
+    $("loadbtn").disabled = true;
     return;
   }
   for(const m of models){
     const o = document.createElement("option");
     o.value = m.id;
-    o.textContent = (m.display_name || m.id.split("/").pop())
-      + (m.loaded ? "  · loaded" : "  · not loaded")
-      + (m.npu_usage != null ? "  · "+m.npu_usage+" NPU" : "");
+    const short = m.display_name || m.id.split("/").pop();
+    const cost = m.npu_usage != null ? m.npu_usage + "u" : "?u";
+    if(m.loaded) o.textContent = short + "  · loaded · " + cost;
+    else if(m.fits) o.textContent = short + "  · fits · " + cost;
+    else {
+      o.textContent = short + "  · will not fit · " + cost;
+      o.disabled = true;
+    }
     sel.appendChild(o);
   }
   const loaded = models.find(m => m.loaded);
-  sel.value = models.some(m => m.id === keep) ? keep : (loaded ? loaded.id : models[0].id);
+  const keepOpt = [...sel.options].find(o => o.value === keep);
+  if(keepOpt && !keepOpt.disabled){
+    sel.value = keep;
+  } else if(loaded){
+    sel.value = loaded.id;
+  } else {
+    const first = [...sel.options].find(o => !o.disabled && o.value);
+    sel.value = first ? first.value : models[0].id;
+  }
   onModel();
 }
 
 function onModel(){
   const m = models.find(x => x.id === $("model").value);
-  $("go").disabled = !m;
+  const busy = !!(loading && loading.status === "loading");
+  $("go").disabled = !m || !m.loaded || busy;
+  $("loadbtn").disabled = !m || m.loaded || !m.fits || busy;
+  $("loadbtn").textContent = busy && loading && loading.model === (m&&m.id) ? "Loading" : "Load";
+  if(busy && loading){
+    showWarn("Loading " + loading.model + " · " + (loading.elapsed_s||0) + "s. This can take a couple of minutes.");
+    return;
+  }
   if(!m) return;
   if(m.loaded) showWarn("");
-  else showWarn(m.id + " is installed but not loaded. Load it in TiinyOS. This app does not load models.");
+  else if(!m.fits) showWarn(m.id + " needs " + (m.npu_usage||"?") + " NPU units and will not fit. Unload something from the rail first. The device would accept the load and roll it back without saying so.");
+  else showWarn(m.id + " is installed but not loaded. Load it from the rail.");
 }
 
 function renderQueue(st){
@@ -328,18 +421,67 @@ function renderGallery(items){
 
 async function loadGallery(){ renderGallery((await jget("/api/gallery")).items || []); }
 
+async function refreshModels(){
+  const m = await jget("/api/models");
+  if(m.npu) paintNpu(m.npu);
+  loading = m.loading || null;
+  fillModels(m.models);
+  return m;
+}
+
 async function tick(){
   const q = watch ? ("?job="+encodeURIComponent(watch)) : "";
   const st = await jget("/api/status"+q);
+  if(st.npu) paintNpu(st.npu);
+  const was = loading && loading.status;
+  loading = st.loading || null;
   if(st.job) lastJob = st.job;
   renderQueue(st);
+  if(loading && loading.status === "loading"){
+    onModel();
+    setTimeout(() => tick().catch(e => showErr(e.message)), 800);
+    return;
+  }
+  if(was === "loading" && loading && loading.status === "failed"){
+    showErr(loading.error || "load failed");
+    await refreshModels().catch(()=>{});
+  } else if(was === "loading" && (!loading || loading.status === "ready")){
+    showErr("");
+    await refreshModels().catch(()=>{});
+  } else {
+    onModel();
+  }
   if(st.job && (st.job.status==="done" || st.job.status==="failed")){
     if(st.job.status==="failed") showErr(st.job.error);
     if(st.job.status==="done"){ showErr(""); await loadGallery(); }
     watch = null;
   }
-  if(!watch && !st.running && !(st.queue||[]).length) return;
+  if(!watch && !st.running && !(st.queue||[]).length && !(loading && loading.status==="loading")) return;
   setTimeout(() => tick().catch(e => showErr(e.message)), 800);
+}
+
+function armNpu(){
+  if(npuTimer) clearTimeout(npuTimer);
+  npuTimer = setTimeout(async () => {
+    try{
+      const st = await jget("/api/status");
+      if(st.npu) paintNpu(st.npu);
+      loading = st.loading || null;
+      if(loading && loading.status === "loading") tick().catch(()=>{});
+      else onModel();
+    }catch(e){}
+    armNpu();
+  }, 3000);
+}
+
+async function doUnload(model, btn){
+  if(btn) btn.disabled = true;
+  try{
+    await jsend("/api/unload", "POST", {model});
+    showErr("");
+    await refreshModels();
+  }catch(e){ showErr(e.message); }
+  if(btn) btn.disabled = false;
 }
 
 async function boot(){
@@ -354,19 +496,28 @@ async function boot(){
     if(d.host) $("host").placeholder = d.host;
     $("conninfo").textContent = d.gallery ? ("gallery  "+d.gallery) : "";
   }catch(e){ $("who").textContent = e.message; }
-  try{
-    const m = await jget("/api/models");
-    fillModels(m.models);
-    if(m.npu && m.npu.total){
-      const extra = "NPU "+(m.npu.used||0)+"/"+(m.npu.total);
-      $("who").appendChild(document.createTextNode(" · "+extra));
-    }
-  }catch(e){ showErr(e.message); fillModels([]); }
+  try{ await refreshModels(); }
+  catch(e){ showErr(e.message); fillModels([]); }
   await loadGallery();
   await tick().catch(()=>{});
+  armNpu();
 }
 
 $("model").addEventListener("change", onModel);
+$("loadbtn").addEventListener("click", async () => {
+  const model = $("model").value;
+  if(!model) return;
+  showErr("");
+  $("loadbtn").disabled = true;
+  try{
+    await jsend("/api/load", "POST", {model});
+    tick().catch(e => showErr(e.message));
+  }catch(e){
+    showErr(e.message);
+    $("loadbtn").disabled = false;
+    onModel();
+  }
+});
 $("form").addEventListener("submit", async ev => {
   ev.preventDefault();
   showErr("");

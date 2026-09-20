@@ -1,7 +1,7 @@
 """The web app: `python3 studio.py --serve 8430`.
 
 Stdlib only. One background thread runs the lane; the page polls for queue
-and gallery. Nothing here loads or unloads a model.
+and gallery. Load and unload are driven from the rail.
 """
 import json
 import pathlib
@@ -78,31 +78,23 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/models":
             try:
                 tok = device.key()
-                models = studio.image_models(tok)
+                payload = studio.models_payload(tok)
             except SystemExit as e:
                 return self._json({"error": str(e)}, 503)
-            if isinstance(models, dict) and "_error" in models:
-                return self._json({"error": device.refusal_text(models)}, 503)
-            units = device.npu_status(tok)
-            live = device.running(tok)
-            return self._json({
-                "models": models,
-                "running": live,
-                "npu": {
-                    "used": units.get("npu_used"),
-                    "free": units.get("npu_available"),
-                    "total": units.get("npu_total") or 100,
-                },
-                "plate": studio.PLATE,
-                "note": ("This app does not load or unload models. "
-                         "Pick one that is already resident."),
-            })
+            if isinstance(payload, dict) and "_error" in payload:
+                return self._json({"error": device.refusal_text(payload)}, 503)
+            return self._json(payload)
         if p == "/api/status":
             snap = studio.LANE.snapshot()
             q = urllib.parse.parse_qs(u.query)
             jid = (q.get("job") or [""])[0]
             if jid:
                 snap["job"] = studio.LANE.job(jid)
+            snap["loading"] = studio.LOADER.snapshot()
+            try:
+                snap["npu"] = studio.npu_view(device.key())
+            except SystemExit:
+                snap["npu"] = None
             return self._json(snap)
         if p == "/api/gallery":
             return self._json({"items": studio.list_items()})
@@ -125,8 +117,38 @@ class Handler(BaseHTTPRequestHandler):
             spec, err = studio.new_job_spec(body)
             if err:
                 return self._json({"error": err}, 400)
+            if studio.LOADER.busy():
+                return self._json({
+                    "error": ("a model is loading; wait until it is ready "
+                              "before generating")}, 409)
             job = studio.LANE.submit(spec)
             return self._json({"ok": True, "job": job}, 202)
+        if u.path == "/api/load":
+            model = (body.get("model") or "").strip()
+            if not model:
+                return self._json({"error": "model is required"}, 400)
+            try:
+                tok = device.key()
+            except SystemExit as e:
+                return self._json({"error": str(e)}, 503)
+            result = studio.start_load(tok, model)
+            if not result.get("ok"):
+                code = 409 if result.get("busy") else 400
+                return self._json({"error": result["error"]}, code)
+            return self._json(result, 202)
+        if u.path == "/api/unload":
+            model = (body.get("model") or "").strip()
+            if not model:
+                return self._json({"error": "model is required"}, 400)
+            try:
+                tok = device.key()
+            except SystemExit as e:
+                return self._json({"error": str(e)}, 503)
+            result = studio.stop_model(tok, model)
+            if not result.get("ok"):
+                code = 409 if result.get("busy") else 400
+                return self._json({"error": result["error"]}, code)
+            return self._json(result)
         if u.path == "/api/device":
             host = (body.get("host") or "").strip()
             newkey = (body.get("key") or "").strip()

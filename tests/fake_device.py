@@ -2,8 +2,14 @@
 import json
 import struct
 import threading
+import time
+import urllib.parse
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Real firmware takes tens of seconds; two polls is the same shape at a
+# speed a test can wait for.
+LOAD_POLLS = 2
 
 
 def tiny_png():
@@ -26,6 +32,9 @@ CATALOG = [
     {"id": "black-forest-labs/FLUX.2-klein-4B", "display_name": "FLUX.2 klein",
      "type": "Text-to-Image", "params": "4B", "npu_usage": 18,
      "total_size": 8_000_000_000, "status": "available"},
+    {"id": "example/Big-Plate-90", "display_name": "Big Plate",
+     "type": "Text-to-Image", "params": "90B", "npu_usage": 90,
+     "total_size": 40_000_000_000, "status": "available"},
     {"id": "deepreinforce-ai/Ornith-1.0-35B", "display_name": "Ornith",
      "type": "Image-Text-to-Text", "params": "35B", "npu_usage": 50,
      "total_size": 18_000_000_000, "status": "available"},
@@ -35,10 +44,40 @@ CATALOG = [
 class State:
     def __init__(self, loaded=None):
         self.loaded = list(loaded if loaded is not None else ["Tongyi-MAI/Z-Image-Turbo"])
+        self.pending = {}
         self.current = 0
         self.peak = 0
         self.lock = threading.Lock()
         self.calls = []
+        self.hold_generate = None
+        self.generate_started = threading.Event()
+        self.npu_total = 100
+
+    def row(self, model_id):
+        for m in CATALOG:
+            if m["id"] == model_id:
+                return m
+        return {"id": model_id, "npu_usage": 1, "type": "Text-to-Image"}
+
+    def cost(self, model_id):
+        return self.row(model_id).get("npu_usage") or 0
+
+    def units_used(self):
+        return sum(self.cost(m) for m in self.loaded)
+
+    def status_of(self, model_id):
+        return "loading" if model_id in self.pending else "running"
+
+    def advance_loads(self):
+        """A start that does not fit sits as loading, then vanishes."""
+        for model_id in list(self.pending):
+            job = self.pending[model_id]
+            job["polls"] -= 1
+            if job["polls"] > 0:
+                continue
+            self.pending.pop(model_id, None)
+            if job["rollback"] and model_id in self.loaded:
+                self.loaded.remove(model_id)
 
 
 class FakeHandler(BaseHTTPRequestHandler):
@@ -82,13 +121,29 @@ class FakeHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/models/running":
             if not self._auth():
                 return
-            return self._send(200, {"running": list(self.state.loaded)})
+            instances = []
+            for offset, model_id in enumerate(self.state.loaded):
+                instances.append({
+                    "model_id": model_id,
+                    "npu_usage": self.state.cost(model_id),
+                    "status": self.state.status_of(model_id),
+                    "instance_id": "fake-%d" % offset,
+                })
+            return self._send(200, {"running": list(self.state.loaded),
+                                    "instances": {"running": instances}})
         if path == "/api/v1/models/npu/status":
             if not self._auth():
                 return
-            used = sum(m["npu_usage"] for m in CATALOG if m["id"] in self.state.loaded)
-            return self._send(200, {"npu_total": 100, "npu_used": used,
-                                    "npu_available": 100 - used})
+            with self.state.lock:
+                self.state.advance_loads()
+                loaded = list(self.state.loaded)
+                models = [{"model_id": m, "npu_usage": self.state.cost(m),
+                           "status": self.state.status_of(m)} for m in loaded]
+            used = sum(self.state.cost(m) for m in loaded)
+            total = self.state.npu_total
+            return self._send(200, {"npu_total": total, "npu_used": used,
+                                    "npu_available": max(0, total - used),
+                                    "models": models})
         if path == "/api/v1/sys/device_info":
             return self._send(200, {"device_name": "Fake Tiiny", "tiiny_os": "0.1.34",
                                     "version": "fake", "sn": "TESTSERIAL"})
@@ -109,7 +164,7 @@ class FakeHandler(BaseHTTPRequestHandler):
             if not self._auth():
                 return
             model = body.get("model")
-            if model not in self.state.loaded:
+            if model not in self.state.loaded or model in self.state.pending:
                 return self._send(503, {
                     "error": {"message": "No suitable model is currently running.",
                               "type": "service_unavailable"}})
@@ -117,14 +172,63 @@ class FakeHandler(BaseHTTPRequestHandler):
                 self.state.current += 1
                 self.state.peak = max(self.state.peak, self.state.current)
                 self.state.calls.append(dict(body))
+            self.state.generate_started.set()
             try:
-                import time
-                time.sleep(0.15)
+                if self.state.hold_generate is not None:
+                    self.state.hold_generate.wait(30)
+                else:
+                    time.sleep(0.15)
                 return self._send(200, PNG, "image/png")
             finally:
                 with self.state.lock:
                     self.state.current -= 1
+        prefix = "/api/v1/models/"
+        for suffix, handler in (("/start", self._start), ("/stop", self._stop)):
+            if path.startswith(prefix) and path.endswith(suffix):
+                model_id = self._model_from(path, prefix, suffix)
+                if model_id is None:
+                    return self._send(404, {"error": {"message": "not found"}})
+                if not self._auth():
+                    return
+                return handler(model_id)
         return self._send(404, {"error": {"message": "not found"}})
+
+    @staticmethod
+    def _model_from(path, prefix, suffix=""):
+        rest = path[len(prefix):]
+        if suffix:
+            if not rest.endswith(suffix):
+                return None
+            rest = rest[:-len(suffix)]
+        if not rest or "/" in rest:
+            return None
+        return urllib.parse.unquote(rest)
+
+    def _start(self, model_id):
+        state = self.state
+        with state.lock:
+            if not any(m["id"] == model_id for m in CATALOG):
+                return self._send(400, {"code": 400, "msg": "Error starting model.",
+                                        "detail": "%s is not downloaded" % model_id})
+            if model_id in state.loaded and model_id not in state.pending:
+                return self._send(200, {"message": "%s already running" % model_id,
+                                        "progress": 100})
+            over = state.units_used() + state.cost(model_id) > state.npu_total
+            if model_id not in state.loaded:
+                state.loaded.append(model_id)
+            state.pending[model_id] = {"polls": LOAD_POLLS, "rollback": over}
+        return self._send(200, {"message": "start loading %s" % model_id,
+                                "progress": 0})
+
+    def _stop(self, model_id):
+        state = self.state
+        with state.lock:
+            if model_id not in state.loaded:
+                return self._send(400, {"code": 400, "msg": "Error stopping model.",
+                                        "detail": "%s is not running" % model_id})
+            state.loaded.remove(model_id)
+            state.pending.pop(model_id, None)
+        return self._send(200, {"removed_container_ids": ["fake"]})
 
 
 class FakeServer(ThreadingHTTPServer):

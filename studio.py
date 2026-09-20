@@ -8,8 +8,9 @@ Generate 512x512 plates from whatever Text-to-Image model is resident, keep
 them in ~/.local/share/tiiny-image-studio/ so an app update does not throw
 the gallery away, and never fire two inferences at once.
 
-This app does not load or unload models. If the one you picked is not
-resident, it says so and stops.
+Load and unload from the page. A model that does not fit the free NPU units
+is refused here, because the device would accept it and roll it back without
+saying so. Nothing is evicted unless the user asks.
 """
 import argparse
 import base64
@@ -198,13 +199,213 @@ def image_models(tok):
     return rows
 
 
+def npu_view(tok):
+    """Units used and free, and what is resident. Megabytes are not here.
+
+    The device's memory_total_mb is not a total; it jumps around on a box
+    whose memory did not change. Unit counts are what we trust.
+    """
+    units = device.npu_status(tok)
+    detail = device.running_detail(tok)
+    cat = device.catalog(tok)
+    by_id = {}
+    if isinstance(cat, list):
+        by_id = {m.get("id"): m for m in cat if isinstance(m, dict) and m.get("id")}
+    total = units.get("npu_total") or 100
+    used = units.get("npu_used")
+    free = units.get("npu_available")
+    if used is None:
+        used = 0
+    if free is None:
+        free = max(0, total - used)
+    resident = []
+    seen = set()
+
+    def add(mid, cost, status):
+        if not mid or mid in seen:
+            return
+        seen.add(mid)
+        if cost is None:
+            cost = (by_id.get(mid) or {}).get("npu_usage")
+        resident.append({"id": mid, "npu_usage": cost,
+                         "status": status or "running"})
+
+    for m in device._npu_rows(units):
+        add(m.get("model_id") or m.get("id"), m.get("npu_usage"), m.get("status"))
+    for inst in ((detail.get("instances") or {}).get("running") or []):
+        if isinstance(inst, dict):
+            add(inst.get("model_id"), inst.get("npu_usage"), inst.get("status"))
+    if not resident:
+        for mid in device.running(tok):
+            add(mid, None, "running")
+    return {"used": used, "free": free, "total": total, "resident": resident}
+
+
+def models_payload(tok):
+    models = image_models(tok)
+    if isinstance(models, dict) and "_error" in models:
+        return models
+    npu = npu_view(tok)
+    free = npu["free"]
+    for m in models:
+        cost = m.get("npu_usage") or 0
+        m["fits"] = bool(m.get("loaded") or cost <= free)
+    return {
+        "models": models,
+        "running": [m["id"] for m in models if m.get("loaded")],
+        "npu": npu,
+        "plate": PLATE,
+        "loading": LOADER.snapshot(),
+    }
+
+
+def refuse_load(tok, model):
+    """Why this model cannot be loaded, or None.
+
+    The NPU budget is checked here rather than left to the device because the
+    device does not refuse: a start that does not fit is accepted, sits in
+    npu/status as loading, and then vanishes with no error anywhere.
+    """
+    models = image_models(tok)
+    if isinstance(models, dict) and "_error" in models:
+        return device.refusal_text(models)
+    row = next((m for m in models if m.get("id") == model), None)
+    if row is None:
+        return ("%s is not an installed Text-to-Image model." % model)
+    if row.get("loaded"):
+        return None
+    npu = npu_view(tok)
+    cost = row.get("npu_usage") or 0
+    free, total, used = npu["free"], npu["total"], npu["used"]
+    if total and used + cost > total:
+        bits = ["%s (%s units)" % (r["id"], r["npu_usage"]
+                                   if r["npu_usage"] is not None else "?")
+                for r in npu["resident"]]
+        who = "; ".join(bits) if bits else "nothing"
+        return ("%s needs %d NPU units and only %d of %d are free. Resident: %s. "
+                "Unload one of those from the rail if you want this one instead. "
+                "The device accepts a load that does not fit and then rolls it "
+                "back without saying so, so it is refused here."
+                % (model, cost, free, total, who))
+    return None
+
+
+def generate_busy():
+    snap = LANE.snapshot()
+    return snap.get("active") or snap.get("running")
+
+
+def load_busy_reason():
+    if generate_busy():
+        return ("a generate is running; a load would sit behind it. "
+                "Wait until the plate is done.")
+    if LOADER.busy():
+        return "already loading %s" % LOADER.model
+    return None
+
+
+class Loader:
+    """One load at a time. The wait lives here so the HTTP handler does not freeze."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.model = None
+        self.status = "idle"
+        self.started = None
+        self.finished = None
+        self.error = None
+
+    def busy(self):
+        with self.lock:
+            return self.status == "loading"
+
+    def snapshot(self):
+        with self.lock:
+            if self.status == "idle":
+                return None
+            elapsed = 0
+            if self.started:
+                end = self.finished or time.time()
+                elapsed = round(end - self.started, 1)
+            return {
+                "model": self.model,
+                "status": self.status,
+                "elapsed_s": elapsed,
+                "error": self.error,
+            }
+
+    def begin(self, model):
+        with self.lock:
+            if self.status == "loading":
+                return "already loading %s" % self.model
+            self.model = model
+            self.status = "loading"
+            self.started = time.time()
+            self.finished = None
+            self.error = None
+            return None
+
+    def finish(self, ok, error=None):
+        with self.lock:
+            self.status = "ready" if ok else "failed"
+            self.error = None if ok else (error or "load failed")
+            self.finished = time.time()
+
+
+LOADER = Loader()
+
+
+def start_load(tok, model):
+    reason = load_busy_reason()
+    if reason:
+        return {"ok": False, "error": reason, "busy": True}
+    refusal = refuse_load(tok, model)
+    if refusal:
+        return {"ok": False, "error": refusal, "refused": True}
+    conflict = LOADER.begin(model)
+    if conflict:
+        return {"ok": False, "error": conflict, "busy": True}
+
+    def _run(t=tok, m=model):
+        try:
+            ok = device.load(t, m)
+            if ok:
+                LOADER.finish(True)
+            else:
+                LOADER.finish(False, (
+                    "%s did not come up. The device accepts a load that does "
+                    "not fit and then rolls it back without saying so, or the "
+                    "start timed out." % m))
+        except Exception as exc:  # noqa: BLE001
+            LOADER.finish(False, "%s: %s" % (type(exc).__name__, exc))
+
+    threading.Thread(target=_run, name="studio-load", daemon=True).start()
+    return {"ok": True, "model": model, "loading": LOADER.snapshot()}
+
+
+def stop_model(tok, model):
+    if generate_busy():
+        running = LANE.snapshot().get("running") or {}
+        if running.get("model") == model:
+            return {"ok": False, "error": (
+                "%s is generating a plate. Wait until it finishes, then unload."
+                % model), "busy": True}
+    if LOADER.busy() and LOADER.model == model:
+        return {"ok": False, "error": "%s is still coming up." % model,
+                "busy": True}
+    live = device.running(tok)
+    if model not in live:
+        return {"ok": False, "error": "%s is not loaded." % model}
+    device.unload(tok, model)
+    return {"ok": True, "model": model}
+
+
 def paint(tok, model, prompt, negative, seed, steps):
     """One plate. Caller holds the lane; this never overlaps another call."""
     live = device.running(tok)
     if model not in live:
         return {"ok": False, "not_loaded": True,
-                "error": ("%s is not loaded. Load it in TiinyOS. "
-                          "This app does not load models." % model)}
+                "error": ("%s is not loaded. Load it from the rail." % model)}
     body = {
         "model": model,
         "prompt": prompt,
@@ -221,8 +422,7 @@ def paint(tok, model, prompt, negative, seed, steps):
     png, err = png_from_response(raw)
     if err:
         if device.not_loaded(err):
-            msg = ("%s is not loaded. Load it in TiinyOS. "
-                   "This app does not load models. The device said: %s"
+            msg = ("%s is not loaded. Load it from the rail. The device said: %s"
                    % (model, device.refusal_text(err)))
             return {"ok": False, "not_loaded": True, "error": msg,
                     "wall_s": wall, "raw": err}
@@ -471,7 +671,7 @@ def selfcheck():
     live = [m for m in models if m.get("loaded")]
     step("an image model is loaded", bool(live),
          (", ".join(m["id"].split("/")[-1] for m in live)
-          or "none resident; load one in TiinyOS. this app does not load models"))
+          or "none resident; load one from the page"))
 
     if live:
         target = live[0]["id"]

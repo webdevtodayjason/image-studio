@@ -2,9 +2,9 @@
   "manifest": 1,
   "id": "image-studio",
   "name": "Image Studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "tagline": "Generate 512x512 plates on your box and keep them after an update.",
-  "description": "Pick a Text-to-Image model that is already loaded, write a prompt, get a PNG. The gallery lives in ~/.local/share/tiiny-image-studio/ so a farm update does not throw it away. One inference at a time, because that is what the hardware does. Version one does not load or unload models, and it does not do background removal, outpainting or character sheets.",
+  "description": "Pick a Text-to-Image model, load it from the rail if it is not resident, write a prompt, get a PNG. The gallery lives in ~/.local/share/tiiny-image-studio/ so a farm update does not throw it away. One inference at a time, because that is what the hardware does. The rail shows NPU units used and free, and greys out a model that will not fit. It does not do background removal, outpainting or character sheets.",
   "author": {
     "name": "Jason Brashear",
     "github": "webdevtodayjason"

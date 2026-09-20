@@ -47,6 +47,16 @@ class StudioCase(unittest.TestCase):
 
         self.lane = studio.Lane()
         studio.LANE = self.lane
+        self.loader = studio.Loader()
+        studio.LOADER = self.loader
+        self._poll = (device.LOAD_POLL_S, device.LOAD_SETTLE_S, device.UNLOAD_SETTLE_S)
+        device.LOAD_POLL_S = 0.05
+        device.LOAD_SETTLE_S = 0.05
+        device.UNLOAD_SETTLE_S = 0.05
+        self.addCleanup(self._restore_poll)
+
+    def _restore_poll(self):
+        device.LOAD_POLL_S, device.LOAD_SETTLE_S, device.UNLOAD_SETTLE_S = self._poll
 
     def _restore(self, saved):
         device.HOST, device.PORT_OVERRIDE = saved[0], saved[3]
@@ -108,7 +118,7 @@ class TestPaint(StudioCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["not_loaded"])
         self.assertIn("not loaded", result["error"])
-        self.assertIn("does not load models", result["error"])
+        self.assertIn("Load it from the rail", result["error"])
         self.assertEqual(self.fake.state.calls, [])
 
     def test_json_wrapper_still_counts_as_a_png(self):
@@ -173,6 +183,13 @@ class TestHttp(StudioCase):
         status, raw = self.call("/")
         self.assertEqual(status, 200)
         self.assertIn(b"Image Studio", raw)
+        self.assertIn(b"Unload", raw)
+        self.assertIn(b"loadbtn", raw)
+        self.assertIn(b"#4FD0C8", raw)
+        for banned in (b"#EF7D22", b"#d1564a", b"#6b2f28", b"#F5F3EE"):
+            self.assertNotIn(banned, raw)
+        self.assertNotIn(b"does not load models", raw)
+        self.assertNotIn(b"memory_total_mb", raw)
 
     def test_models_come_from_the_device_not_a_table(self):
         status, body = self.call("/api/models")
@@ -182,6 +199,18 @@ class TestHttp(StudioCase):
         self.assertNotIn("deepreinforce-ai/Ornith-1.0-35B", ids)
         turbo = next(m for m in body["models"] if "Z-Image" in m["id"])
         self.assertTrue(turbo["loaded"])
+        self.assertTrue(turbo["fits"])
+        self.assertEqual(body["npu"]["total"], 100)
+        self.assertEqual(body["npu"]["used"], 32)
+        self.assertEqual(body["npu"]["free"], 68)
+        self.assertNotIn("memory", json.dumps(body["npu"]))
+        ids = [r["id"] for r in body["npu"]["resident"]]
+        self.assertIn("Tongyi-MAI/Z-Image-Turbo", ids)
+        huge = next(m for m in body["models"] if "Big-Plate" in m["id"])
+        self.assertFalse(huge["loaded"])
+        self.assertFalse(huge["fits"])
+        flux = next(m for m in body["models"] if "FLUX" in m["id"])
+        self.assertTrue(flux["fits"])
 
     def test_generate_then_gallery_then_delete(self):
         status, body = self.call("/api/generate", "POST", {
@@ -270,7 +299,109 @@ class TestNotLoadedHttp(StudioCase):
             time.sleep(0.05)
         self.assertEqual(st["status"], "failed")
         self.assertTrue(st["not_loaded"])
-        self.assertIn("does not load models", st["error"])
+        self.assertIn("Load it from the rail", st["error"])
+
+
+class TestLoadHttp(StudioCase):
+    def setUp(self):
+        super().setUp()
+        self.app = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        self.app.daemon_threads = True
+        th = threading.Thread(target=self.app.serve_forever,
+                              kwargs={"poll_interval": 0.05}, daemon=True)
+        th.start()
+        self.addCleanup(th.join, 5)
+        self.addCleanup(self.app.server_close)
+        self.addCleanup(self.app.shutdown)
+        self.base = "http://127.0.0.1:%d" % self.app.server_address[1]
+
+    def call(self, path, method="GET", body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw, status = resp.read(), resp.status
+                ctype = resp.headers.get("Content-Type")
+        except urllib.error.HTTPError as exc:
+            raw, status, ctype = exc.read(), exc.code, exc.headers.get("Content-Type")
+        if ctype and "json" in ctype:
+            return status, json.loads(raw.decode())
+        return status, raw
+
+    def wait_loaded(self, model, timeout=4):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            _, body = self.call("/api/models")
+            row = next((m for m in body["models"] if m["id"] == model), None)
+            load = body.get("loading") or {}
+            if row and row["loaded"] and load.get("status") != "loading":
+                return body
+            time.sleep(0.05)
+        self.fail("did not load " + model)
+
+    def test_load_then_unload_moves_the_unit_counts(self):
+        flux = "black-forest-labs/FLUX.2-klein-4B"
+        status, body = self.call("/api/load", "POST", {"model": flux})
+        self.assertEqual(status, 202, body)
+        payload = self.wait_loaded(flux)
+        self.assertEqual(payload["npu"]["used"], 50)
+        self.assertEqual(payload["npu"]["free"], 50)
+        resident = {r["id"]: r["npu_usage"] for r in payload["npu"]["resident"]}
+        self.assertEqual(resident[flux], 18)
+        self.assertEqual(resident["Tongyi-MAI/Z-Image-Turbo"], 32)
+        status, body = self.call("/api/unload", "POST", {"model": flux})
+        self.assertEqual(status, 200, body)
+        _, payload = self.call("/api/models")
+        self.assertEqual(payload["npu"]["used"], 32)
+        ids = [m["id"] for m in payload["models"] if m["loaded"]]
+        self.assertNotIn(flux, ids)
+
+    def test_a_model_that_does_not_fit_is_refused_with_what_is_resident(self):
+        huge = "example/Big-Plate-90"
+        status, body = self.call("/api/load", "POST", {"model": huge})
+        self.assertEqual(status, 400)
+        self.assertIn("needs 90 NPU units", body["error"])
+        self.assertIn("only 68 of 100 are free", body["error"])
+        self.assertIn("Tongyi-MAI/Z-Image-Turbo (32 units)", body["error"])
+        self.assertNotIn(huge, self.fake.state.loaded)
+
+    def test_a_chat_model_is_not_an_image_model(self):
+        status, body = self.call("/api/load", "POST", {
+            "model": "deepreinforce-ai/Ornith-1.0-35B"})
+        self.assertEqual(status, 400)
+        self.assertIn("not an installed Text-to-Image model", body["error"])
+
+    def test_load_is_refused_while_a_generate_is_running(self):
+        gate = threading.Event()
+        self.fake.state.hold_generate = gate
+        self.fake.state.generate_started.clear()
+        status, body = self.call("/api/generate", "POST", {
+            "model": "Tongyi-MAI/Z-Image-Turbo", "prompt": "hold",
+        })
+        self.assertEqual(status, 202, body)
+        self.assertTrue(self.fake.state.generate_started.wait(2))
+        status, body = self.call("/api/load", "POST", {
+            "model": "black-forest-labs/FLUX.2-klein-4B"})
+        self.assertEqual(status, 409)
+        self.assertIn("a generate is running", body["error"])
+        gate.set()
+
+    def test_unloading_something_that_is_not_loaded_is_a_sentence(self):
+        status, body = self.call("/api/unload", "POST", {
+            "model": "black-forest-labs/FLUX.2-klein-4B"})
+        self.assertEqual(status, 400)
+        self.assertIn("is not loaded", body["error"])
+
+    def test_status_carries_npu_and_no_megabytes(self):
+        status, body = self.call("/api/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["npu"]["total"], 100)
+        self.assertIn("resident", body["npu"])
+        blob = json.dumps(body)
+        self.assertNotIn("memory_total_mb", blob)
+        self.assertNotIn("memory_mb", blob)
 
 
 if __name__ == "__main__":
