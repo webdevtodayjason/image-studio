@@ -29,7 +29,7 @@ from http.server import ThreadingHTTPServer
 import device
 import media
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 device.VERSION = VERSION
 HERE = pathlib.Path(__file__).resolve().parent
 
