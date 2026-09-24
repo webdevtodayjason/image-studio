@@ -7,6 +7,7 @@ helpers the bench uses, so a start is not reported ready until the model is
 actually up.
 """
 import errno
+import getpass
 import glob
 import json
 import os
@@ -539,6 +540,29 @@ def _tiinyos_keys():
     return sorted(counts, key=lambda c: -counts[c])
 
 
+def account_auth_key(addr, serial, password):
+    """The device's own static API key, straight from the box, no TiinyOS.
+
+    POST /api/v1/account/auth (password + serial), Host: auth.api.tiiny,
+    unlocks /data and hands back `auth_key` -- the same 36-char UUID this
+    module calls just "key". Confirmed 2026-09-24 against a live device.
+    Full writeup: ~/code/tiiny/tools/README-unlock.md. Returns "" rather
+    than raising on any failure, matching the other candidates in key().
+    """
+    body = json.dumps({"password": password, "device_id": serial}).encode()
+    req = urllib.request.Request(
+        "http://%s/api/v1/account/auth" % addr, data=body, method="POST",
+        headers={"Content-Type": "application/json", "Host": "auth.api.tiiny",
+                 "x-device-id": serial, "accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            out = json.loads(resp.read().decode())
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError,
+            ValueError, OSError):
+        return ""
+    return (out.get("auth_key") or "").strip()
+
+
 def key():
     global KEY_SOURCE
     env = os.environ.get("TIINY_KEY", "").strip()
@@ -557,6 +581,20 @@ def key():
         if "_error" not in api(gw("/api/v1/models/running"), c, timeout=20):
             KEY_SOURCE = "TiinyOS local storage"
             return c
+    if HOST and DEVICE.get("serial") and sys.stdin.isatty():
+        print("  No API key found. This box's own account can hand one "
+              "over -- no TiinyOS needed.")
+        try:
+            password = getpass.getpass("  Tiiny main password (not echoed): ")
+        except (EOFError, KeyboardInterrupt):
+            password = ""
+        got = account_auth_key(HOST, DEVICE["serial"], password) if password else None
+        del password
+        if got:
+            save_config(key=got)
+            KEY_SOURCE = "account API (saved to %s)" % CONFIG
+            return got
+        print("  That didn't work. Falling through to the usual error.")
     sys.exit("No API key. Set TIINY_KEY, paste one into the web UI, "
              "or run this on the Mac running TiinyOS.")
 
@@ -719,17 +757,39 @@ def unload(tok, model):
     time.sleep(UNLOAD_SETTLE_S)
 
 
+def _error_node(body):
+    """The `error` value out of a refusal body, whatever shape it is.
+
+    The device is not consistent about what sits under "error". Every route
+    this app drives puts an object there with a message, and /v1/ocr puts a
+    bare string: {"error": "Endpoint not found"}, which is what a loaded
+    model that does not implement the route answers. A string has no .get,
+    the try below only ever caught ValueError, and refusal_text could raise
+    AttributeError out of the one function whose whole job is turning a
+    refusal into a sentence. Measured 2026-09-19 while building Foolscap.
+
+    A bare string still carries the sentence, so it is returned and read
+    rather than discarded.
+    """
+    try:
+        obj = json.loads(body or "{}")
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    err = obj.get("error")
+    return err if isinstance(err, (dict, str)) else {}
+
+
 def not_loaded(v):
     if not isinstance(v, dict) or "_error" not in v:
         return False
     if v.get("_status") not in (404, 503):
         return False
-    try:
-        err = (json.loads(v.get("_body") or "{}") or {}).get("error") or {}
-    except ValueError:
-        err = {}
-    msg = str(err.get("message") or v.get("_body") or "").lower()
-    return (err.get("type") == NOT_LOADED_TYPE
+    err = _error_node(v.get("_body"))
+    msg = str((err.get("message") if isinstance(err, dict) else err)
+              or v.get("_body") or "").lower()
+    return ((err.get("type") if isinstance(err, dict) else None) == NOT_LOADED_TYPE
             or "no suitable model" in msg
             or "is not loaded" in msg
             or "not loaded" in msg)
@@ -740,13 +800,13 @@ def refusal_text(v):
     if not isinstance(v, dict):
         return str(v)[:500]
     body = v.get("_body") or ""
-    try:
-        err = (json.loads(body) or {}).get("error") or {}
+    err = _error_node(body)
+    if isinstance(err, str) and err.strip():
+        return err.strip()[:500]
+    if isinstance(err, dict):
         msg = err.get("message")
         if msg:
             return str(msg)
-    except ValueError:
-        pass
     if body.strip():
         return body.strip()[:500]
     return v.get("_error") or "the device refused"

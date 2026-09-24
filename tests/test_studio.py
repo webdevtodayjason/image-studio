@@ -70,6 +70,45 @@ class StudioCase(unittest.TestCase):
         return "test-key"
 
 
+class TestRefusalShapes(unittest.TestCase):
+    """The device is not consistent about what sits under "error".
+
+    Every route this app drives puts an object there. /v1/ocr puts a bare
+    string, {"error": "Endpoint not found"}, when a model is loaded that does
+    not implement the route. A string has no .get, so refusal_text used to
+    raise AttributeError out of the one function whose job is turning a
+    refusal into a sentence. Found 2026-09-19 while building Foolscap.
+    """
+
+    def refusal(self, body, status=503):
+        return {"_error": "HTTP Error %d" % status, "_status": status,
+                "_body": body}
+
+    def test_a_bare_string_error_is_the_sentence_not_a_crash(self):
+        v = self.refusal('{"error":"Endpoint not found"}', 404)
+        self.assertEqual(device.refusal_text(v), "Endpoint not found")
+        self.assertFalse(device.not_loaded(v))
+
+    def test_the_ordinary_object_shape_still_reads(self):
+        v = self.refusal('{"error":{"message":"No suitable model is currently '
+                         'running.","type":"service_unavailable"}}')
+        self.assertEqual(device.refusal_text(v),
+                         "No suitable model is currently running.")
+        self.assertTrue(device.not_loaded(v))
+
+    def test_a_bare_string_still_answers_the_not_loaded_question(self):
+        # the sentence is read, not discarded, because it is all there is
+        v = self.refusal('{"error":"No suitable model is currently running."}')
+        self.assertTrue(device.not_loaded(v))
+
+    def test_bodies_that_are_not_an_object_fall_through_to_the_body(self):
+        for body in ('{"detail":"Not Found"}', "[1, 2]", '"just a string"',
+                     "not json at all", ""):
+            v = self.refusal(body)
+            self.assertIsInstance(device.refusal_text(v), str)
+            self.assertFalse(device.not_loaded(v))
+
+
 class TestGallery(StudioCase):
     def test_gallery_is_not_inside_the_install(self):
         path = str(studio.gallery_dir().resolve())
